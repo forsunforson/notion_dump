@@ -1,0 +1,13 @@
+# Notion 官方库
+notion-client
+
+# Google API 核心库
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# 环境管理（读取 .env 文件）
+python-dotenv
+
+# 可选：如果你想更方便地转换 Markdown
+notion2markdown
