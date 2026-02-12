@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from notion_client import Client
 from notion_to_md import NotionToMarkdown
+from utils import NotionMapper
 
 # Load environment variables
 # Force reload to pick up changes in .env file if run interactively/repeatedly
@@ -42,56 +43,6 @@ def format_uuid(id_str):
     except ValueError:
         return id_str
 
-import json
-
-def format_properties(properties):
-    """
-    Simplify Notion properties for JSON export.
-    Extracts the 'value' part based on the property type.
-    """
-    simple_props = {}
-    for name, prop in properties.items():
-        prop_type = prop.get("type")
-        value = None
-        
-        if prop_type == "title":
-            value = "".join([t["plain_text"] for t in prop.get("title", [])])
-        elif prop_type == "rich_text":
-            value = "".join([t["plain_text"] for t in prop.get("rich_text", [])])
-        elif prop_type == "number":
-            value = prop.get("number")
-        elif prop_type == "select":
-            select = prop.get("select")
-            value = select["name"] if select else None
-        elif prop_type == "multi_select":
-            value = [opt["name"] for opt in prop.get("multi_select", [])]
-        elif prop_type == "date":
-            date = prop.get("date")
-            value = date if date else None
-        elif prop_type == "checkbox":
-            value = prop.get("checkbox")
-        elif prop_type == "url":
-            value = prop.get("url")
-        elif prop_type == "email":
-            value = prop.get("email")
-        elif prop_type == "phone_number":
-            value = prop.get("phone_number")
-        elif prop_type == "formula":
-            formula = prop.get("formula")
-            value = formula.get(formula.get("type")) if formula else None
-        elif prop_type == "relation":
-            value = [rel["id"] for rel in prop.get("relation", [])]
-        elif prop_type == "status":
-            status = prop.get("status")
-            value = status["name"] if status else None
-        # Add other types as needed, for now dump raw for unknown complex types if needed
-        # or just skip/simplify
-        
-        if value is not None:
-            simple_props[name] = value
-            
-    return simple_props
-
 def get_page_metadata(page_id):
     """Retrieve title and metadata of a Notion page or database."""
     try:
@@ -114,7 +65,8 @@ def get_page_metadata(page_id):
             "created_time": created_time, 
             "last_edited_time": last_edited_time,
             "properties": properties,
-            "type": "page"
+            "type": "page",
+            "page_obj": page
         }
         
     except Exception as e:
@@ -134,14 +86,15 @@ def get_page_metadata(page_id):
                     "created_time": created_time, 
                     "last_edited_time": last_edited_time,
                     "properties": {}, # Databases don't have properties in the same way pages do
-                    "type": "database"
+                    "type": "database",
+                    "page_obj": db
                 }
             except Exception as db_e:
                 print(f"Error retrieving metadata for database {page_id}: {db_e}")
         else:
             print(f"Error retrieving metadata for page {page_id}: {e}")
             
-        return {"title": "Unknown", "created_time": None, "last_edited_time": None, "type": "unknown"}
+        return {"title": "Unknown", "created_time": None, "last_edited_time": None, "type": "unknown", "page_obj": None}
 
 # Global counter for processed pages
 processed_count = 0
@@ -190,10 +143,11 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
     
     metadata = get_page_metadata(page_id)
     title = metadata["title"]
-    created_time = metadata["created_time"] 
-    last_edited_time = metadata.get("last_edited_time")
-    properties = metadata.get("properties", {})
+    # created_time = metadata["created_time"] 
+    # last_edited_time = metadata.get("last_edited_time")
+    # properties = metadata.get("properties", {})
     obj_type = metadata.get("type", "page")
+    page_obj = metadata.get("page_obj")
     
     if obj_type == "database":
         print(f"Detected {page_id} is a database. Processing as database...")
@@ -207,6 +161,12 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
     # 2. Convert to Markdown
     try:
         md_content = ""
+        
+        # Add YAML Frontmatter
+        if page_obj:
+            yaml_dict = NotionMapper.page_to_dict(page_obj)
+            md_content += NotionMapper.to_yaml(yaml_dict)
+        
         if parent_filename:
             # Extract ID from filename (remove .md extension) for the link text
             # parent_filename is now just {parent_id}.md
@@ -215,19 +175,10 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
             parent_id = Path(parent_filename).stem
             # Ensure parent_id is also formatted (though it should be if it came from filename)
             parent_id = format_uuid(parent_id)
-            md_content += f"parent_doc_link: [{parent_id}]({parent_filename})\n"
+            md_content += f"parent_doc_link: [{parent_id}]({parent_filename})\n\n"
         
-        # Format properties for JSON dump
-        simple_props = format_properties(properties)
-        if simple_props:
-            md_content += f"properties: {json.dumps(simple_props, ensure_ascii=False)}\n"
-            
-        md_content += f"\n# {title}\n"
-        if created_time:
-            md_content += f"create_time: {created_time}\n"
-        if last_edited_time:
-            md_content += f"modify_time: {last_edited_time}\n"
-        md_content += "\n"
+        md_content += f"# {title}\n\n"
+        
         md_content += converter.convert_page_content(page_id)
     except Exception as e:
         print(f"Failed to export page {title} ({page_id}): {e}")
@@ -356,7 +307,10 @@ def main():
     root_output_path = Path(OUTPUT_DIR)
     
     # Split ROOT_PAGE_ID by comma and strip whitespace
-    page_ids = [pid.strip() for pid in ROOT_PAGE_ID.split(",") if pid.strip()]
+    if ROOT_PAGE_ID:
+        page_ids = [pid.strip() for pid in ROOT_PAGE_ID.split(",") if pid.strip()]
+    else:
+        page_ids = []
     
     print(f"Starting download for {len(page_ids)} root pages to {root_output_path.absolute()}")
     
