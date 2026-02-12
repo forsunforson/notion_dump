@@ -1,7 +1,10 @@
 import os
 import re
 import logging
-from datetime import datetime
+import json
+import argparse
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from notion_client import Client
@@ -19,6 +22,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 NOTION_TOKEN = os.getenv("notion_token")
 ROOT_PAGE_ID = os.getenv("page_id")
 OUTPUT_DIR = "notion_output"
+STATE_FILE = ".notion-dump-state.json"
 
 if not NOTION_TOKEN:
     raise ValueError("Please set notion_token in .env file")
@@ -43,11 +47,53 @@ def format_uuid(id_str):
     except ValueError:
         return id_str
 
-def get_page_metadata(page_id):
+def load_state():
+    """Load the last sync time from state file."""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                state = json.load(f)
+                return state.get("last_sync_time")
+        except Exception as e:
+            print(f"Error loading state file: {e}")
+    return None
+
+def save_state(last_sync_time):
+    """Save the last sync time to state file."""
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump({"last_sync_time": last_sync_time}, f)
+        print(f"State saved: last_sync_time={last_sync_time}")
+    except Exception as e:
+        print(f"Error saving state file: {e}")
+
+def get_page_metadata(page_id, page_obj=None):
     """Retrieve title and metadata of a Notion page or database."""
     try:
-        # First try to retrieve as a page
-        page = notion.pages.retrieve(page_id=page_id)
+        page = None
+        if page_obj:
+            if page_obj["object"] == "page":
+                page = page_obj
+            elif page_obj["object"] == "database":
+                db = page_obj
+                created_time = db.get("created_time")
+                last_edited_time = db.get("last_edited_time")
+                title_objs = db.get("title", [])
+                title = "".join([t["plain_text"] for t in title_objs]) or "Untitled Database"
+                
+                return {
+                    "title": title, 
+                    "created_time": created_time, 
+                    "last_edited_time": last_edited_time,
+                    "properties": {}, 
+                    "type": "database",
+                    "page_obj": db
+                }
+        
+        if not page:
+            # First try to retrieve as a page
+            page = notion.pages.retrieve(page_id=page_id)
+            
         properties = page.get("properties", {})
         created_time = page.get("created_time")
         last_edited_time = page.get("last_edited_time")
@@ -71,7 +117,7 @@ def get_page_metadata(page_id):
         
     except Exception as e:
         # Check if it's a database
-        if "is a database" in str(e):
+        if "is a database" in str(e) and not page_obj:
             try:
                 db = notion.databases.retrieve(database_id=page_id)
                 created_time = db.get("created_time")
@@ -120,7 +166,7 @@ def resolve_database_id(block_id):
         print(f"Error resolving database ID for {block_id}: {e}")
         return block_id, False
 
-def download_page(page_id, output_dir, parent_filename=None, depth=0):
+def download_page(page_id, output_dir, parent_filename=None, depth=0, page_obj=None, recursive=True):
     """
     Recursively download a Notion page and its children.
     
@@ -129,6 +175,8 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
         output_dir (Path): The directory to save the file in.
         parent_filename (str): The filename of the parent page.
         depth (int): Current recursion depth.
+        page_obj (dict): Optional pre-fetched page object.
+        recursive (bool): Whether to recursively download children.
     """
     global processed_count
     # if processed_count >= MAX_PAGES:
@@ -141,7 +189,7 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
     # Ensure page_id is formatted as standard UUID
     page_id = format_uuid(page_id)
     
-    metadata = get_page_metadata(page_id)
+    metadata = get_page_metadata(page_id, page_obj=page_obj)
     title = metadata["title"]
     # created_time = metadata["created_time"] 
     # last_edited_time = metadata.get("last_edited_time")
@@ -152,7 +200,8 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
     if obj_type == "database":
         print(f"Detected {page_id} is a database. Processing as database...")
         real_db_id, is_linked = resolve_database_id(page_id)
-        process_database(real_db_id, output_dir, parent_filename, depth, is_linked=is_linked)
+        if recursive:
+            process_database(real_db_id, output_dir, parent_filename, depth, is_linked=is_linked)
         return
 
     # Use Page ID as filename for RAG optimization
@@ -196,6 +245,9 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0):
     print(f"Saved: {file_path}")
 
     # 4. Check for Children (Recursion)
+    if not recursive:
+        return
+
     # if depth >= max_depth:
     #     # print(f"Reached max depth {max_depth}, skipping children of {title}")
     #     return
@@ -303,29 +355,96 @@ def process_database(database_id, output_dir, parent_filename, depth, is_linked=
             traceback.print_exc()
             break
 
-def main():
+def sync_incremental(force=False):
+    """
+    Perform incremental sync using Notion Search API.
+    """
     root_output_path = Path(OUTPUT_DIR)
+    # Use UTC time in ISO 8601 format with Z suffix
+    current_run_start_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
     
-    # Split ROOT_PAGE_ID by comma and strip whitespace
-    if ROOT_PAGE_ID:
-        page_ids = [pid.strip() for pid in ROOT_PAGE_ID.split(",") if pid.strip()]
+    last_sync_time = load_state()
+    if force:
+        print("Force update enabled. Ignoring last sync time.")
+        last_sync_time = None
+    
+    print(f"Starting sync. Current time: {current_run_start_time}")
+    if last_sync_time:
+        print(f"Last sync time: {last_sync_time}")
     else:
-        page_ids = []
+        print("Performing full sync (first run or forced).")
+
+    has_more = True
+    next_cursor = None
+    processed_pages_count = 0
     
-    print(f"Starting download for {len(page_ids)} root pages to {root_output_path.absolute()}")
-    
-    for page_id in page_ids:
-        try:
-            # Format UUID just in case
-            formatted_id = format_uuid(page_id)
-            print(f"\n--- Processing Root Page: {formatted_id} ---")
-            download_page(formatted_id, root_output_path, parent_filename=None)
-        except Exception as e:
-            print(f"Error processing root page {page_id}: {e}")
-            import traceback
-            traceback.print_exc()
+    try:
+        while has_more:
+            query_params = {
+                "sort": {"direction": "descending", "timestamp": "last_edited_time"},
+                "page_size": 100,
+            }
+            if next_cursor:
+                query_params["start_cursor"] = next_cursor
+                
+            response = notion.search(**query_params)
+            results = response.get("results", [])
             
-    print("\nAll downloads complete!")
+            for page in results:
+                page_id = page["id"]
+                last_edited_time = page.get("last_edited_time")
+                
+                # Check if we should stop processing
+                if last_sync_time and last_edited_time <= last_sync_time:
+                    print(f"Found page not modified since last sync: {last_edited_time} <= {last_sync_time}. Stopping.")
+                    has_more = False # Stop pagination
+                    break
+                
+                # Determine parent filename
+                parent_filename = None
+                parent = page.get("parent", {})
+                if parent.get("type") == "page_id":
+                    parent_id = format_uuid(parent.get("page_id"))
+                    parent_filename = f"{parent_id}.md"
+                elif parent.get("type") == "database_id":
+                     parent_id = format_uuid(parent.get("database_id"))
+                     parent_filename = f"{parent_id}.md"
+                
+                # Download page (non-recursive)
+                try:
+                    download_page(page_id, root_output_path, parent_filename=parent_filename, page_obj=page, recursive=False)
+                    processed_pages_count += 1
+                except Exception as e:
+                    print(f"Error downloading page {page_id}: {e}")
+                    raise e
+
+            if not has_more:
+                break
+                
+            next_cursor = response.get("next_cursor")
+            has_more = response.get("has_more")
+            
+        print(f"Sync complete. Processed {processed_pages_count} pages.")
+        
+        if processed_pages_count == 0 and last_sync_time:
+             print("No new changes found.")
+             
+        # Update state
+        save_state(current_run_start_time)
+        
+    except Exception as e:
+        print(f"Sync failed: {e}")
+        # import traceback
+        # traceback.print_exc()
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(description="Notion Dump with Incremental Sync")
+    parser.add_argument("--force", "--full", action="store_true", help="Force full sync, ignoring last sync time.")
+    # Parse known args to avoid issues if other args are passed (though we only expect one)
+    args, unknown = parser.parse_known_args()
+    
+    sync_incremental(force=args.force)
 
 if __name__ == "__main__":
     main()

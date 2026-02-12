@@ -17,6 +17,7 @@ A powerful tool to recursively export Notion content (Pages, Databases, Linked V
   - Automatically falls back to alternative API endpoints (e.g., `data_sources.query`) when standard queries fail.
   - Skips inaccessible content without crashing the entire process.
 - **Batch Processing**: Support exporting multiple root pages/databases in a single run.
+- **Incremental Sync**: Only downloads pages modified since the last run, significantly reducing execution time.
 
 ## Installation
 
@@ -51,6 +52,16 @@ Run the main download script:
 
 ```bash
 python app/download_notion.py
+```
+
+By default, the script performs an **incremental sync**, checking for pages modified since the last successful run.
+
+### CLI Arguments
+
+- `--force` / `--full`: Ignore the last sync time and force a full download of all pages.
+
+```bash
+python app/download_notion.py --force
 ```
 
 ### Output Structure
