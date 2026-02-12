@@ -18,6 +18,10 @@ A powerful tool to recursively export Notion content (Pages, Databases, Linked V
   - Skips inaccessible content without crashing the entire process.
 - **Batch Processing**: Support exporting multiple root pages/databases in a single run.
 - **Incremental Sync**: Only downloads pages modified since the last run, significantly reducing execution time.
+- **AI Content Observer**:
+  - Automatically analyzes changed files using OpenAI-compatible APIs.
+  - Generates summaries, action items, and tags for each modified note.
+  - Produces a daily report in `_reports/`.
 
 ## Installation
 
@@ -44,6 +48,11 @@ A powerful tool to recursively export Notion content (Pages, Databases, Linked V
 
    # Comma-separated list of Page or Database IDs to export
    page_id=c8177e66a6f341418ed2c27a55c9e5a9,105e1f11732641c2bb84974caf8e1f23
+
+   # AI Configuration (Optional, for Content Observer)
+   AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+   # AI_BASE_URL=https://api.openai.com/v1  # Default
+   # AI_MODEL=gpt-3.5-turbo                 # Default
    ```
 
 ## Usage
@@ -59,10 +68,15 @@ By default, the script performs an **incremental sync**, checking for pages modi
 ### CLI Arguments
 
 - `--force` / `--full`: Ignore the last sync time and force a full download of all pages.
+- `--skip-observer`: Skip the AI analysis step after synchronization.
 
 ```bash
 python app/download_notion.py --force
 ```
+
+### AI Customization
+
+You can customize the AI analysis prompt by editing `observer_prompt.md` in the project root. This file is automatically created on the first run if it doesn't exist.
 
 ### Output Structure
 

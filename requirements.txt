@@ -11,3 +11,6 @@ python-dotenv
 
 # YAML handling
 PyYAML
+
+# AI
+openai

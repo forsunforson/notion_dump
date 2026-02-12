@@ -7,9 +7,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
+import asyncio
 from notion_client import Client
 from notion_to_md import NotionToMarkdown
 from utils import NotionMapper
+from observer import ContentObserver
 
 # Load environment variables
 # Force reload to pick up changes in .env file if run interactively/repeatedly
@@ -246,7 +248,7 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0, page_obj=N
 
     # 4. Check for Children (Recursion)
     if not recursive:
-        return
+        return file_path
 
     # if depth >= max_depth:
     #     # print(f"Reached max depth {max_depth}, skipping children of {title}")
@@ -374,6 +376,7 @@ def sync_incremental(force=False):
     else:
         print("Performing full sync (first run or forced).")
 
+    changed_files = []
     has_more = True
     next_cursor = None
     processed_pages_count = 0
@@ -412,7 +415,9 @@ def sync_incremental(force=False):
                 
                 # Download page (non-recursive)
                 try:
-                    download_page(page_id, root_output_path, parent_filename=parent_filename, page_obj=page, recursive=False)
+                    saved_path = download_page(page_id, root_output_path, parent_filename=parent_filename, page_obj=page, recursive=False)
+                    if saved_path:
+                        changed_files.append(saved_path)
                     processed_pages_count += 1
                 except Exception as e:
                     print(f"Error downloading page {page_id}: {e}")
@@ -431,6 +436,7 @@ def sync_incremental(force=False):
              
         # Update state
         save_state(current_run_start_time)
+        return changed_files
         
     except Exception as e:
         print(f"Sync failed: {e}")
@@ -441,10 +447,19 @@ def sync_incremental(force=False):
 def main():
     parser = argparse.ArgumentParser(description="Notion Dump with Incremental Sync")
     parser.add_argument("--force", "--full", action="store_true", help="Force full sync, ignoring last sync time.")
+    parser.add_argument("--skip-observer", action="store_true", help="Skip AI analysis of changed files.")
+    
     # Parse known args to avoid issues if other args are passed (though we only expect one)
     args, unknown = parser.parse_known_args()
     
-    sync_incremental(force=args.force)
+    changed_files = sync_incremental(force=args.force)
+    
+    if changed_files and not args.skip_observer:
+        observer = ContentObserver()
+        try:
+            asyncio.run(observer.analyze_changes(changed_files))
+        except Exception as e:
+            print(f"Error running observer: {e}")
 
 if __name__ == "__main__":
     main()
