@@ -8,6 +8,7 @@ A powerful tool to recursively export Notion content (Pages, Databases, Linked V
   - Filenames use **Notion UUIDs** (e.g., `1e2c9e17-cd88-8039-bc92-efd2521ed7d1.md`) to ensure global uniqueness.
   - Internal links use ID-based references (`[Title](UUID.md)`), avoiding broken links due to renaming.
   - Metadata injection: Every file includes `create_time` and `modify_time` headers.
+  - **Properties Export**: Page properties (e.g., Tags, Status, Select, Dates) are extracted as a JSON string in the `properties` header, enabling structured data filtering in RAG pipelines.
 - **Comprehensive Support**:
   - Recursively downloads child pages and databases.
   - **Linked Databases**: Automatically resolves and exports content from Linked Database Views using `data_sources` API.
@@ -68,6 +69,7 @@ notion_output/
 
 ```markdown
 parent_doc_link: [c8177e66-a6f3-4141-8ed2-c27a55c9e5a9](c8177e66-a6f3-4141-8ed2-c27a55c9e5a9.md)
+properties: {"Status": "Done", "Tags": ["AI", "RAG"], "Priority": "High"}
 
 # Page Title
 create_time: 2023-07-12T01:55:00.000Z
