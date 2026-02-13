@@ -2,10 +2,15 @@ from notion_client import Client
 from datetime import datetime
 import re
 import uuid
+import os
+import yaml
+from pathlib import Path
 
 class NotionToMarkdown:
-    def __init__(self, notion_client: Client):
+    def __init__(self, notion_client: Client, output_dir: str = "notion_output"):
         self.notion = notion_client
+        self.output_dir = Path(output_dir)
+        self.page_titles = {} # Cache for page titles
 
     def _format_uuid(self, id_str):
         """Format a Notion ID string into a standard UUID format (with dashes)."""
@@ -33,6 +38,75 @@ class NotionToMarkdown:
         except Exception as e:
             print(f"Error fetching metadata for link generation {page_id}: {e}")
         return ""
+
+    def get_page_title(self, page_id):
+        """
+        Get page title from cache, local file, or Notion API.
+        """
+        page_id = self._format_uuid(page_id)
+        
+        # 1. Check cache
+        if page_id in self.page_titles:
+            return self.page_titles[page_id]
+
+        # 2. Check local file
+        # The file is expected to be in output_dir / {page_id}.md
+        # Try to extract title from YAML frontmatter first, then fallback to H1 header
+        file_path = self.output_dir / f"{page_id}.md"
+        if file_path.exists():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read(4096) # Read first 4KB should be enough
+                    
+                    # 1. Try YAML frontmatter
+                    frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+                    if frontmatter_match:
+                        try:
+                            frontmatter = yaml.safe_load(frontmatter_match.group(1))
+                            if isinstance(frontmatter, dict) and "title" in frontmatter:
+                                title = str(frontmatter["title"]).strip()
+                                self.page_titles[page_id] = title
+                                return title
+                        except yaml.YAMLError:
+                            pass # Fallback if YAML parsing fails
+
+                    # 2. Fallback to H1 regex
+                    match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                    if match:
+                        title = match.group(1).strip()
+                        self.page_titles[page_id] = title
+                        return title
+            except Exception as e:
+                print(f"Warning: Failed to read title from local file {file_path}: {e}")
+
+        # 3. Call Notion API
+        try:
+            # We only need properties, but retrieve returns everything.
+            page = self.notion.pages.retrieve(page_id=page_id)
+            
+            # Check if it is a page
+            if page.get("object") == "page":
+                properties = page.get("properties", {})
+                # Title property can have different names, usually "title" or "Name"
+                title_prop = properties.get("title") or properties.get("Name")
+                
+                title = "Untitled"
+                if title_prop and "title" in title_prop:
+                    title = "".join([t["plain_text"] for t in title_prop["title"]])
+                
+                self.page_titles[page_id] = title
+                return title
+            elif page.get("object") == "database":
+                 # Database title
+                 title_objs = page.get("title", [])
+                 title = "".join([t["plain_text"] for t in title_objs]) or "Untitled Database"
+                 self.page_titles[page_id] = title
+                 return title
+
+        except Exception as e:
+            print(f"Warning: Failed to fetch title for page {page_id}: {e}")
+        
+        return None
 
     def block_to_markdown(self, block):
         block_type = block["type"]
@@ -99,6 +173,27 @@ class NotionToMarkdown:
             # For RAG purpose, use ID as filename directly
             # No longer need date prefix or filename sanitization for the link target
             return f"[{title}]({page_id}.md)\n\n"
+
+        # link_to_page handling
+        elif block_type == "link_to_page":
+            link_info = block["link_to_page"]
+            target_id = None
+            
+            if link_info["type"] == "page_id":
+                target_id = link_info["page_id"]
+            elif link_info["type"] == "database_id":
+                target_id = link_info["database_id"]
+            # Ignore comment_id or other types for now as per instructions
+            
+            if target_id:
+                target_id = self._format_uuid(target_id)
+                title = self.get_page_title(target_id)
+                
+                if title:
+                    return f"[{title}]({target_id}.md)\n\n"
+                else:
+                    return f"[Linked Page]({target_id}.md)\n\n"
+            return ""
             
         # child_database handling: ignore content but keep recursion logic in caller
         elif block_type == "child_database":
@@ -149,7 +244,7 @@ class NotionToMarkdown:
                     md_output += self.block_to_markdown(block)
                     
                     # Handle nested blocks (except child_page/database which are handled externally)
-                    if block.get("has_children") and block["type"] not in ["child_page", "child_database"]:
+                    if block.get("has_children") and block["type"] not in ["child_page", "child_database", "link_to_page"]:
                          # Recursively fetch children for this block
                          # Indent logic would be needed for proper nested lists, skipping for simple implementation
                          pass

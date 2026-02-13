@@ -36,7 +36,7 @@ if not ROOT_PAGE_ID:
 
 # Initialize clients
 notion = Client(auth=NOTION_TOKEN)
-converter = NotionToMarkdown(notion)
+converter = NotionToMarkdown(notion, OUTPUT_DIR)
 
 import uuid
 
@@ -46,10 +46,37 @@ def format_uuid(id_str):
     If it's already a valid UUID, return it normalized.
     If invalid, return as is (though Notion IDs should be valid UUIDs).
     """
+    if not id_str:
+        return None
     try:
         return str(uuid.UUID(id_str))
     except ValueError:
         return id_str
+
+def extract_page_id(input_str):
+    """
+    Extract Notion Page ID from URL or raw ID string.
+    """
+    if not input_str:
+        return None
+        
+    # 1. If it looks like a URL
+    if "notion.site" in input_str or "notion.so" in input_str:
+        # Extract the last 32 hex characters
+        match = re.search(r'([a-fA-F0-9]{32})', input_str)
+        if match:
+            return match.group(1)
+        
+    # 2. If it's a raw UUID (with or without dashes)
+    try:
+        # Remove dashes to check length/hex
+        clean_id = input_str.replace("-", "")
+        if len(clean_id) == 32 and re.match(r'^[a-fA-F0-9]+$', clean_id):
+            return clean_id
+    except:
+        pass
+        
+    return input_str
 
 def load_state():
     """Load the last sync time from state file."""
@@ -204,6 +231,8 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0, page_obj=N
     
     metadata = get_page_metadata(page_id, page_obj=page_obj)
     title = metadata["title"]
+    # Update converter cache
+    converter.page_titles[page_id] = title
     # created_time = metadata["created_time"] 
     # last_edited_time = metadata.get("last_edited_time")
     # properties = metadata.get("properties", {})
@@ -448,6 +477,9 @@ def sync_incremental(force=False):
                         page_title = "".join([t["plain_text"] for t in prop.get("title", [])])
                         break
                 
+                # Update converter cache
+                converter.page_titles[format_uuid(page_id)] = page_title
+                
                 # Extract tags
                 page_tags = []
                 tags_prop = props.get("Tags") or props.get("tags")
@@ -533,13 +565,62 @@ def sync_incremental(force=False):
         # traceback.print_exc()
         sys.exit(1)
 
+def print_page_markdown(url_or_id):
+    """
+    Download and print markdown for a specific page to stdout.
+    """
+    page_id_raw = extract_page_id(url_or_id)
+    page_id = format_uuid(page_id_raw)
+    
+    if not page_id:
+        print(f"Error: Could not extract valid Page ID from input: {url_or_id}", file=sys.stderr)
+        return
+
+    print(f"Fetching metadata for {page_id}...", file=sys.stderr)
+    metadata = get_page_metadata(page_id)
+    title = metadata["title"]
+    page_obj = metadata["page_obj"]
+    
+    if not page_obj:
+        print(f"Failed to retrieve page object for {page_id}.", file=sys.stderr)
+        return
+
+    # Update converter cache
+    converter.page_titles[page_id] = title
+
+    md_content = ""
+    
+    # Add YAML Frontmatter
+    if page_obj:
+        yaml_dict = NotionMapper.page_to_dict(page_obj)
+        yaml_content = NotionMapper.to_yaml(yaml_dict)
+        md_content += yaml_content
+    
+    md_content += f"# {title}\n\n"
+    
+    print("Converting content...", file=sys.stderr)
+    try:
+        md_content += converter.convert_page_content(page_id)
+        
+        print("\n" + "="*40 + " MARKDOWN OUTPUT " + "="*40 + "\n")
+        print(md_content)
+        print("\n" + "="*97 + "\n")
+        
+    except Exception as e:
+        print(f"Error converting page: {e}", file=sys.stderr)
+
 def main():
     parser = argparse.ArgumentParser(description="Notion Dump with Incremental Sync")
     parser.add_argument("--force", "--full", action="store_true", help="Force full sync, ignoring last sync time.")
     parser.add_argument("--skip-observer", action="store_true", help="Skip AI analysis of changed files.")
+    parser.add_argument("--print-url", help="Print Markdown for a specific page URL/ID to stdout without saving.")
     
     # Parse known args to avoid issues if other args are passed (though we only expect one)
     args, unknown = parser.parse_known_args()
+    
+    if args.print_url:
+        print_page_markdown(args.print_url)
+        return
     
     changed_files = sync_incremental(force=args.force)
     
