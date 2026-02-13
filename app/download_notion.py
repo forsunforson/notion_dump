@@ -13,6 +13,7 @@ from notion_client import Client
 from notion_to_md import NotionToMarkdown
 from utils import NotionMapper
 from observer import ContentObserver
+from services.git_service import GitService
 
 # Load environment variables
 # Force reload to pick up changes in .env file if run interactively/repeatedly
@@ -643,8 +644,23 @@ def main():
             print("Full sync detected. Observer is disabled by default to save tokens. Use --with-observer to enable.")
             should_run_observer = False
     
+    # Initialize Git Service
+    try:
+        git_service = GitService(OUTPUT_DIR)
+        git_service.init_repo()
+    except Exception as e:
+        print(f"Warning: Git service initialization failed: {e}")
+        git_service = None
+
     changed_files = sync_incremental(force=args.force)
     
+    # Sync changes to git
+    if git_service:
+        try:
+            git_service.sync_changes()
+        except Exception as e:
+            print(f"Warning: Git sync failed: {e}")
+
     if changed_files and should_run_observer:
         observer = ContentObserver()
         try:

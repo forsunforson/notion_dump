@@ -10,6 +10,7 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
 *   **YAML Frontmatter**: Adds metadata (title, created time, last edited time, tags, etc.) as YAML frontmatter to generated Markdown files.
 *   **Print to Console**: Option to print converted Markdown directly to stdout without saving to disk.
 *   **Content Observer**: (Optional) AI analysis of changed files.
+*   **Git Backup**: Automatically commits and pushes generated Markdown files to a separate Git repository.
 
 ## Installation
 
@@ -30,6 +31,12 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
     ```env
     notion_token=your_integration_token
     page_id=your_root_page_id
+    
+    # Git Backup Configuration (Optional)
+    GIT_REMOTE_URL=git@github.com:your-user/your-backup-repo.git
+    GIT_BRANCH=main
+    GIT_USER_NAME=Notion Backup Bot
+    GIT_USER_EMAIL=bot@example.com
     ```
 
 ## Usage
@@ -86,6 +93,7 @@ For more details, check [deploy/README.md](deploy/README.md).
 ## Architecture
 
 *   `app/download_notion.py`: Main entry point. Handles syncing logic, argument parsing, and orchestrates the download process.
+*   `app/services/git_service.py`: Handles Git operations for the backup repository.
 *   `app/notion_to_md.py`: Core logic for converting Notion blocks to Markdown. Includes intelligent title resolution for linked pages.
 *   `app/observer.py`: Handles AI observation of changed content.
 *   `app/utils.py`: Utility functions for mapping Notion properties and handling data formats.
@@ -94,4 +102,5 @@ For more details, check [deploy/README.md](deploy/README.md).
 
 *   **Link to Page Fix**: "Link to Page" blocks are now correctly converted to Markdown links `[Page Title](PageID.md)`.
 *   **Optimized Title Resolution**: Page titles are resolved using a 3-layer strategy: Memory Cache -> Local File YAML Frontmatter -> Notion API.
+*   **Git Backup**: Added support for automatic Git backup of the output directory to a separate repository.
 *   **CLI Improvements**: Added `--print-url` for quick single-page exports.
