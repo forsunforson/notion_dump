@@ -14,3 +14,6 @@ PyYAML
 
 # AI
 openai
+
+# Async file I/O
+aiofiles

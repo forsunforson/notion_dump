@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import datetime
+import re
+import aiofiles
 from pathlib import Path
 from openai import AsyncOpenAI
 
@@ -77,6 +79,40 @@ Plaintext
                 print(f"Error analyzing {file_path}: {e}")
                 return None
 
+    async def _hydrate_context(self, content: str, root_dir: Path) -> str:
+        matches = re.finditer(r'(parent_doc_link:\s*)?\[(.*?)\]\((.*?\.md)\)', content)
+        
+        ref_xml_parts = []
+        count = 0
+        
+        for match in matches:
+            if count >= 5:
+                break
+                
+            prefix = match.group(1)
+            filename = match.group(3)
+            
+            # If prefix exists (i.e., it is "parent_doc_link: "), skip this link
+            if prefix:
+                continue
+                
+            file_path = root_dir / filename
+            if file_path.exists():
+                try:
+                    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                        ref_content = await f.read(1000)
+                        ref_xml_parts.append(f'      <ref title="{filename}">\n        {ref_content}\n      </ref>')
+                        count += 1
+                except Exception:
+                    pass
+        
+        xml_content = f"<changed_document>\n{content}\n</changed_document>"
+        
+        if ref_xml_parts:
+            xml_content += "\n    <references>\n" + "\n".join(ref_xml_parts) + "\n    </references>"
+            
+        return xml_content
+
     async def _analyze_one_file(self, file_path):
         path = Path(file_path)
         if not path.exists():
@@ -93,7 +129,10 @@ Plaintext
             
         filename = path.name
         
-        system_prompt = "你是一个敏锐的个人知识库助手。请分析用户的笔记变动。"
+        # Hydrate context
+        content = await self._hydrate_context(content, path.parent)
+        
+        system_prompt = "你是知识库助手。<changed_document> 是用户刚刚修改的内容，<references> 是该文档引用的背景资料（仅供参考，不是本次修改的内容）。请基于这些信息进行总结。"
         
         prompt_template = self._get_prompt_template()
         user_prompt = prompt_template.format(filename=filename, content=content)
