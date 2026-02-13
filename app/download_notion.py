@@ -228,15 +228,6 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0, page_obj=N
                 yaml_dict["parent_doc_link"] = parent_filename
 
             yaml_content = NotionMapper.to_yaml(yaml_dict)
-            
-            if parent_filename:
-                # Add comment for clickable link in IDEs
-                # Pattern matches: parent_doc_link: "filename.md"
-                # We want to append: # [Parent](./filename.md)
-                esc_filename = re.escape(parent_filename)
-                pattern = rf'(parent_doc_link:\s*["\']?{esc_filename}["\']?)'
-                replacement = rf'\1 # [Parent](./{parent_filename})'
-                yaml_content = re.sub(pattern, replacement, yaml_content)
                 
             md_content += yaml_content
         
