@@ -80,7 +80,7 @@ Plaintext
                 return None
 
     async def _hydrate_context(self, content: str, root_dir: Path) -> str:
-        matches = re.finditer(r'(parent_doc_link:\s*)?\[(.*?)\]\((.*?\.md)\)', content)
+        matches = re.finditer(r'\[(.*?)\]\((.*?\.md)\)', content)
         
         ref_xml_parts = []
         count = 0
@@ -89,13 +89,8 @@ Plaintext
             if count >= 5:
                 break
                 
-            prefix = match.group(1)
-            filename = match.group(3)
+            filename = match.group(2)
             
-            # If prefix exists (i.e., it is "parent_doc_link: "), skip this link
-            if prefix:
-                continue
-                
             file_path = root_dir / filename
             if file_path.exists():
                 try:

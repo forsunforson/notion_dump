@@ -216,17 +216,29 @@ def download_page(page_id, output_dir, parent_filename=None, depth=0, page_obj=N
         # Add YAML Frontmatter
         if page_obj:
             yaml_dict = NotionMapper.page_to_dict(page_obj)
-            md_content += NotionMapper.to_yaml(yaml_dict)
-        
-        if parent_filename:
-            # Extract ID from filename (remove .md extension) for the link text
-            # parent_filename is now just {parent_id}.md
-            # We can still keep the title in the link text if we had it, but here we only have filename.
-            # For RAG, the link target being the ID is the most important.
-            parent_id = Path(parent_filename).stem
-            # Ensure parent_id is also formatted (though it should be if it came from filename)
-            parent_id = format_uuid(parent_id)
-            md_content += f"parent_doc_link: [{parent_id}]({parent_filename})\n\n"
+            
+            if parent_filename:
+                # Extract ID from filename (remove .md extension) for the link text
+                # parent_filename is now just {parent_id}.md
+                # We can still keep the title in the link text if we had it, but here we only have filename.
+                # For RAG, the link target being the ID is the most important.
+                # parent_id = Path(parent_filename).stem
+                # Ensure parent_id is also formatted (though it should be if it came from filename)
+                # parent_id = format_uuid(parent_id)
+                yaml_dict["parent_doc_link"] = parent_filename
+
+            yaml_content = NotionMapper.to_yaml(yaml_dict)
+            
+            if parent_filename:
+                # Add comment for clickable link in IDEs
+                # Pattern matches: parent_doc_link: "filename.md"
+                # We want to append: # [Parent](./filename.md)
+                esc_filename = re.escape(parent_filename)
+                pattern = rf'(parent_doc_link:\s*["\']?{esc_filename}["\']?)'
+                replacement = rf'\1 # [Parent](./{parent_filename})'
+                yaml_content = re.sub(pattern, replacement, yaml_content)
+                
+            md_content += yaml_content
         
         md_content += f"# {title}\n\n"
         
