@@ -617,6 +617,7 @@ def main():
     parser = argparse.ArgumentParser(description="Notion Dump with Incremental Sync")
     parser.add_argument("--force", "--full", action="store_true", help="Force full sync, ignoring last sync time.")
     parser.add_argument("--skip-observer", action="store_true", help="Skip AI analysis of changed files.")
+    parser.add_argument("--with-observer", action="store_true", help="Force enable AI analysis even during full sync.")
     parser.add_argument("--print-url", help="Print Markdown for a specific page URL/ID to stdout without saving.")
     
     # Parse known args to avoid issues if other args are passed (though we only expect one)
@@ -625,10 +626,26 @@ def main():
     if args.print_url:
         print_page_markdown(args.print_url)
         return
+
+    # Determine if we should run observer
+    # Default: Run observer on incremental sync, skip on full sync (unless forced)
+    should_run_observer = True
+    
+    last_sync_time = load_state()
+    is_full_sync = args.force or (last_sync_time is None)
+    
+    if args.skip_observer:
+        should_run_observer = False
+    elif is_full_sync:
+        if args.with_observer:
+            should_run_observer = True
+        else:
+            print("Full sync detected. Observer is disabled by default to save tokens. Use --with-observer to enable.")
+            should_run_observer = False
     
     changed_files = sync_incremental(force=args.force)
     
-    if changed_files and not args.skip_observer:
+    if changed_files and should_run_observer:
         observer = ContentObserver()
         try:
             asyncio.run(observer.analyze_changes(changed_files))

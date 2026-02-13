@@ -58,6 +58,31 @@ To skip the AI analysis step:
 python3 app/download_notion.py --skip-observer
 ```
 
+### Force AI Observer (Full Sync)
+By default, the AI Observer is disabled during full syncs (`--force`) to save tokens. To force enable it:
+```bash
+python3 app/download_notion.py --force --with-observer
+```
+
+## Deployment
+
+We provide scripts for easy deployment and scheduling on Linux servers (e.g., GCP VM).
+
+### Quick Start
+
+1.  **Run Interactively**:
+    Use the interactive manager to run tasks, schedule cron jobs, or view logs:
+    ```bash
+    ./deploy/manage.sh
+    ```
+
+2.  **Manual Execution**:
+    ```bash
+    ./deploy/run_task.sh
+    ```
+
+For more details, check [deploy/README.md](deploy/README.md).
+
 ## Architecture
 
 *   `app/download_notion.py`: Main entry point. Handles syncing logic, argument parsing, and orchestrates the download process.
