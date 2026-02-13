@@ -211,4 +211,4 @@ service_account.json
 notion_blocks_dump.json
 database.json
 .notion-dump-state.json
-_reports/
+notion-dump-history.jsonl

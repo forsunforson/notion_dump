@@ -4,6 +4,7 @@ import logging
 import json
 import argparse
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ NOTION_TOKEN = os.getenv("notion_token")
 ROOT_PAGE_ID = os.getenv("page_id")
 OUTPUT_DIR = "notion_output"
 STATE_FILE = ".notion-dump-state.json"
+HISTORY_FILE = "notion-dump-history.jsonl"
 
 if not NOTION_TOKEN:
     raise ValueError("Please set notion_token in .env file")
@@ -68,6 +70,15 @@ def save_state(last_sync_time):
         print(f"State saved: last_sync_time={last_sync_time}")
     except Exception as e:
         print(f"Error saving state file: {e}")
+
+def append_history_log(entry):
+    """Append a log entry to the history file."""
+    try:
+        with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"Warning: Failed to write history log: {e}")
+
 
 def get_page_metadata(page_id, page_obj=None):
     """Retrieve title and metadata of a Notion page or database."""
@@ -379,6 +390,14 @@ def sync_incremental(force=False):
     else:
         print("Performing full sync (first run or forced).")
 
+    start_time = time.time()
+    stats = {
+        "created_count": 0,
+        "updated_count": 0,
+        "error_count": 0
+    }
+    details = []
+
     changed_files = []
     has_more = True
     next_cursor = None
@@ -416,13 +435,50 @@ def sync_incremental(force=False):
                      parent_id = format_uuid(parent.get("database_id"))
                      parent_filename = f"{parent_id}.md"
                 
+                # Prepare metadata for logging
+                filename = f"{format_uuid(page_id)}.md"
+                file_path = root_output_path / filename
+                action = "UPDATE" if file_path.exists() else "CREATE"
+                
+                page_title = "Untitled"
+                props = page.get("properties", {})
+                # Extract title
+                for prop in props.values():
+                    if prop["type"] == "title":
+                        page_title = "".join([t["plain_text"] for t in prop.get("title", [])])
+                        break
+                
+                # Extract tags
+                page_tags = []
+                tags_prop = props.get("Tags") or props.get("tags")
+                if tags_prop and tags_prop.get("type") == "multi_select":
+                    page_tags = [opt["name"] for opt in tags_prop.get("multi_select", [])]
+                
+                page_url = page.get("url")
+
                 # Download page (non-recursive)
                 try:
                     saved_path = download_page(page_id, root_output_path, parent_filename=parent_filename, page_obj=page, recursive=False)
                     if saved_path:
                         changed_files.append(saved_path)
+                        
+                        # Update stats and details
+                        if action == "CREATE":
+                            stats["created_count"] += 1
+                        else:
+                            stats["updated_count"] += 1
+                            
+                        details.append({
+                            "id": page_id,
+                            "title": page_title,
+                            "url": page_url,
+                            "tags": page_tags,
+                            "action": action
+                        })
+                        
                     processed_pages_count += 1
                 except Exception as e:
+                    stats["error_count"] += 1
                     print(f"Error downloading page {page_id}: {e}")
                     raise e
 
@@ -437,11 +493,41 @@ def sync_incremental(force=False):
         if processed_pages_count == 0 and last_sync_time:
              print("No new changes found.")
              
+        # Write history log
+        try:
+            if stats["created_count"] > 0 or stats["updated_count"] > 0 or stats["error_count"] > 0:
+                duration = time.time() - start_time
+                log_entry = {
+                    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                    "duration": round(duration, 3),
+                    "stats": stats,
+                    "details": details
+                }
+                append_history_log(log_entry)
+        except Exception as e:
+            print(f"Error processing history log: {e}")
+
         # Update state
         save_state(current_run_start_time)
         return changed_files
         
     except Exception as e:
+        # Also attempt to log partial results if possible
+        try:
+            if stats["created_count"] > 0 or stats["updated_count"] > 0 or stats["error_count"] > 0:
+                duration = time.time() - start_time
+                log_entry = {
+                    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                    "duration": round(duration, 3),
+                    "stats": stats,
+                    "details": details,
+                    "status": "failed",
+                    "error": str(e)
+                }
+                append_history_log(log_entry)
+        except:
+            pass
+            
         print(f"Sync failed: {e}")
         # import traceback
         # traceback.print_exc()

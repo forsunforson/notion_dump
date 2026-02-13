@@ -23,6 +23,11 @@ A powerful tool to recursively export Notion content (Pages, Databases, Linked V
   - Generates summaries, action items, and tags for each modified note.
   - Produces a daily report in `_reports/`.
 
+- **Execution Logging**:
+  - Records detailed execution history in `notion-dump-history.jsonl`.
+  - Tracks sync duration, changes count (create/update), and error count.
+  - Logs metadata for each changed page (title, URL, tags).
+
 ## Installation
 
 1. Create and activate a virtual environment:
