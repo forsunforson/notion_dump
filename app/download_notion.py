@@ -480,11 +480,15 @@ def sync_incremental(force=False):
                 # Update converter cache
                 converter.page_titles[format_uuid(page_id)] = page_title
                 
-                # Extract tags
+                # Extract tags (only for pages)
                 page_tags = []
-                tags_prop = props.get("Tags") or props.get("tags")
-                if tags_prop and tags_prop.get("type") == "multi_select":
-                    page_tags = [opt["name"] for opt in tags_prop.get("multi_select", [])]
+                if page["object"] == "page":
+                    tags_prop = props.get("Tags") or props.get("tags")
+                    if tags_prop and tags_prop.get("type") == "multi_select":
+                        try:
+                            page_tags = [opt["name"] for opt in tags_prop.get("multi_select", [])]
+                        except Exception:
+                            pass
                 
                 page_url = page.get("url")
 

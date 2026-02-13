@@ -106,10 +106,10 @@ class NotionMapper:
             return [r.get("id") for r in relations]
             
         elif prop_type == "created_time":
-            return prop.get("created_time")
+            return NotionMapper._convert_date(prop.get("created_time"))
             
         elif prop_type == "last_edited_time":
-            return prop.get("last_edited_time")
+            return NotionMapper._convert_date(prop.get("last_edited_time"))
             
         elif prop_type == "created_by":
              user = prop.get("created_by")
@@ -162,6 +162,10 @@ class NotionMapper:
             prop_type = prop.get("type")
             if prop_type == "title":
                 continue 
+            
+            # Skip duplicated time fields that are already in system fields
+            if prop_type in ["created_time", "last_edited_time"]:
+                continue
             
             yaml_key = NotionMapper.to_snake_case(key)
             value = NotionMapper.map_property(prop)
