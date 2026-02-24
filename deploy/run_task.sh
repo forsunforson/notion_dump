@@ -23,7 +23,12 @@ BACKUP_FILES=(".notion-dump-state.json" "notion-dump-history.jsonl" ".env")
 
 # Define the task execution logic
 run_task() {
-    # Check and activate virtual environment
+    # 1. 自动更新代码库 (忽略本地任何临时代码修改，强制对齐线上)
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] 拉取最新项目代码..." >> "$LOG_FILE"
+    git fetch origin main >> "$LOG_FILE" 2>&1
+    git reset --hard origin/main >> "$LOG_FILE" 2>&1
+
+    # 2. 检查并激活虚拟环境
     VENV_DIR="$PROJECT_ROOT/venv"
     if [ ! -d "$VENV_DIR" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error: Virtual environment not found at $VENV_DIR" >> "$LOG_FILE"
@@ -32,10 +37,13 @@ run_task() {
     
     source "$VENV_DIR/bin/activate"
 
+    # (可选) 自动更新依赖
+    pip install -r requirements.txt -q >> "$LOG_FILE" 2>&1
+
     echo "========================================================" >> "$LOG_FILE"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task Started" >> "$LOG_FILE"
 
-    # Run the Python script
+    # 3. 执行核心程序
     # The entry point is app/download_notion.py based on project structure
     python app/download_notion.py >> "$LOG_FILE" 2>&1
     EXIT_CODE=$?
