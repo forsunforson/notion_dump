@@ -140,10 +140,27 @@ class GitService:
             except subprocess.CalledProcessError as e:
                 logging.warning(f"Git pull failed (normal for empty repo): {e.stderr}")
 
+    def pull_latest(self):
+        """
+        Pull the latest changes from the remote repository.
+        Should be called at startup before any Notion API operations.
+        """
+        if not self.git_remote_url:
+            logging.warning("No remote URL configured. Skipping pull.")
+            return
+
+        try:
+            logging.info(f"Pulling latest changes from origin {self.git_branch}...")
+            self._run_git(["pull", "origin", self.git_branch])
+            logging.info("Pull successful.")
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Pull failed (may be normal for empty repo): {e.stderr}")
+
     def sync_changes(self):
         """
         Sync changes to the remote repository.
         Adds all changes, commits with timestamp, and pushes.
+        Uses auto-rebase with conflict resolution for multi-client scenarios.
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -151,7 +168,6 @@ class GitService:
             logging.info("Syncing changes...")
             self._run_git(["add", "."])
             
-            # Check if there are changes to commit
             status = self._run_git(["status", "--porcelain"])
             if not status.stdout.strip():
                 logging.info("No changes to commit.")
@@ -161,6 +177,21 @@ class GitService:
             self._run_git(["commit", "-m", commit_message])
             
             if self.git_remote_url:
+                try:
+                    logging.info(f"Pulling with rebase from origin {self.git_branch}...")
+                    self._run_git([
+                        "pull", "--rebase", "origin", self.git_branch,
+                        "-s", "recursive", "-X", "theirs"
+                    ])
+                    logging.info("Rebase successful.")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Rebase failed, attempting to abort: {e.stderr}")
+                    try:
+                        self._run_git(["rebase", "--abort"])
+                    except subprocess.CalledProcessError:
+                        pass
+                    raise e
+
                 logging.info(f"Pushing to origin {self.git_branch}...")
                 self._run_git(["push", "-u", "origin", self.git_branch])
                 logging.info("Push successful.")

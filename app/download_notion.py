@@ -648,6 +648,7 @@ def main():
     try:
         git_service = GitService(OUTPUT_DIR)
         git_service.init_repo()
+        git_service.pull_latest()
     except Exception as e:
         print(f"Warning: Git service initialization failed: {e}")
         git_service = None
