@@ -213,3 +213,4 @@ database.json
 .notion-dump-state.json
 notion-dump-history.jsonl
 logs/
+_reports/
