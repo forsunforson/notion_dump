@@ -21,6 +21,23 @@ LOG_FILE="$LOG_DIR/execution.log"
 RCLONE_REMOTE="gdrive:notion-dump-backup"
 BACKUP_FILES=(".notion-dump-state.json" "notion-dump-history.jsonl" ".env")
 
+# Parse --job parameter for logging
+JOB_TYPE="sync"
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --job)
+            JOB_TYPE="$2"
+            ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
 # Define the task execution logic
 run_task() {
     # 1. 自动更新代码库 (忽略本地任何临时代码修改，强制对齐线上)
@@ -41,11 +58,11 @@ run_task() {
     pip install -r requirements.txt -q >> "$LOG_FILE" 2>&1
 
     echo "========================================================" >> "$LOG_FILE"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task Started" >> "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task Started (Job: $JOB_TYPE)" >> "$LOG_FILE"
 
     # 3. 执行核心程序
-    # The entry point is app/download_notion.py based on project structure
-    python app/download_notion.py >> "$LOG_FILE" 2>&1
+    # Support --job parameter passthrough to main.py
+    python main.py "${ARGS[@]}" >> "$LOG_FILE" 2>&1
     EXIT_CODE=$?
 
     # --- Rclone Backup Step ---
