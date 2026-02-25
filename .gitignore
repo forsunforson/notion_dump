@@ -1,4 +1,3 @@
-notion_output/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -214,3 +213,4 @@ database.json
 notion-dump-history.jsonl
 logs/
 _reports/
+notion_output/
