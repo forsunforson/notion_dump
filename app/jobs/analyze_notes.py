@@ -99,7 +99,7 @@ class AnalyzeNotesJob:
         
         user_prompt = self.prompt_manager.build_prompt(str(file_path), hydrated_content, filename, raw_content=raw_content)
         
-        print(f"[DEBUG] User prompt preview: {user_prompt[:500]}...")
+        print(f"[DEBUG] User prompt preview: {user_prompt[:5000]}...")
         
         analysis_dict = await self.llm.ask_json(system_prompt, user_prompt)
         if not analysis_dict:
