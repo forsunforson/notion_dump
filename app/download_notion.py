@@ -10,10 +10,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 import asyncio
 from notion_client import Client
-from notion_to_md import NotionToMarkdown
-from utils import NotionMapper
-from jobs.analyze_notes import AnalyzeNotesJob
-from services.git_service import GitService
+from .notion_to_md import NotionToMarkdown
+from .utils import NotionMapper
+from .jobs.analyze_notes import AnalyzeNotesJob
+from .services.git_service import GitService
 
 # Load environment variables
 # Force reload to pick up changes in .env file if run interactively/repeatedly
