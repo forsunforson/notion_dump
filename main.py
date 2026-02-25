@@ -95,32 +95,33 @@ async def run_weekly_job():
         sys.exit(1)
 
 
-async def run_analyze_job():
+async def run_analyze_job(file_paths: list = None):
     from app.jobs.analyze_notes import AnalyzeNotesJob
-    from app.download_notion import load_state
     
     logger.info("Starting analyze job...")
     
-    last_sync_time = load_state()
-    if not last_sync_time:
-        logger.warning("No previous sync found. Run 'python main.py --job sync' first.")
-        return
-    
-    notion_output = Path(OUTPUT_DIR)
-    if not notion_output.exists():
-        logger.warning(f"Output directory {OUTPUT_DIR} not found.")
-        return
-    
-    md_files = list(notion_output.glob("**/*.md"))
-    if not md_files:
-        logger.info("No markdown files found to analyze.")
-        return
-    
-    logger.info(f"Found {len(md_files)} markdown files to analyze.")
+    if file_paths:
+        files_to_analyze = [Path(f) for f in file_paths]
+        valid_files = [f for f in files_to_analyze if f.exists() and f.suffix == ".md"]
+        if not valid_files:
+            logger.warning("No valid markdown files found in provided paths.")
+            return
+        logger.info(f"Analyzing {len(valid_files)} specified files.")
+    else:
+        notion_output = Path(OUTPUT_DIR)
+        if not notion_output.exists():
+            logger.warning(f"Output directory {OUTPUT_DIR} not found.")
+            return
+        
+        valid_files = list(notion_output.glob("**/*.md"))
+        if not valid_files:
+            logger.info("No markdown files found to analyze.")
+            return
+        logger.info(f"Found {len(valid_files)} markdown files to analyze.")
     
     job = AnalyzeNotesJob()
     try:
-        await job.analyze_changes([str(f) for f in md_files])
+        await job.analyze_changes([str(f) for f in valid_files])
         logger.info("Analyze job completed.")
     except Exception as e:
         logger.error(f"Analyze job failed: {e}")
@@ -136,7 +137,8 @@ Examples:
   python main.py --job sync --force            # Force full sync
   python main.py --job morning                 # Run morning routine
   python main.py --job weekly                  # Run weekly review
-  python main.py --job analyze                 # Run analysis on existing files
+  python main.py --job analyze                 # Analyze all files in notion_output/
+  python main.py --job analyze file1.md file2.md  # Analyze specific files
         """
     )
     
@@ -161,6 +163,11 @@ Examples:
         action="store_true",
         help="Force enable AI analysis even during full sync (only for sync job)"
     )
+    parser.add_argument(
+        "files",
+        nargs="*",
+        help="Files to analyze (only for analyze job). If not specified, analyzes all files in notion_output/"
+    )
     
     args = parser.parse_args()
     
@@ -177,7 +184,7 @@ Examples:
     elif args.job == "weekly":
         asyncio.run(run_weekly_job())
     elif args.job == "analyze":
-        asyncio.run(run_analyze_job())
+        asyncio.run(run_analyze_job(args.files))
     else:
         logger.error(f"Unknown job type: {args.job}")
         sys.exit(1)

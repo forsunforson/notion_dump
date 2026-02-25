@@ -113,14 +113,18 @@ This will:
 
 ### Analyze Job
 
-Run AI analysis on existing markdown files:
+Run AI analysis on markdown files:
 
 ```bash
+# Analyze all files in notion_output/
 python main.py --job analyze
+
+# Analyze specific files
+python main.py --job analyze path/to/file1.md path/to/file2.md
 ```
 
 This will:
-1. Find all markdown files in the output directory
+1. Find markdown files (all in notion_output/ or specified paths)
 2. Run AI analysis on each file
 3. Generate a report in `_reports/` directory
 
