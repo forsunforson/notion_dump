@@ -140,6 +140,9 @@ class PromptManager:
         title = metadata.get('title', '')
         return title == self.DAILY_ENTRY_TITLE
 
+    def is_daily_entry(self, content: str) -> bool:
+        return self._is_daily_entry(content)
+
     def _load_template(self, template_name: str) -> Optional[str]:
         template_path = self.templates_dir / template_name
         
@@ -153,13 +156,16 @@ class PromptManager:
             print(f"Error loading template {template_name}: {e}")
             return None
 
-    def build_prompt(self, file_path: str, content: str, filename: str = None) -> str:
+    def build_prompt(self, file_path: str, content: str, filename: str = None, raw_content: str = None) -> str:
         profile_str = self.load_profile()
         
         if filename is None:
             filename = Path(file_path).name
             
-        is_diary = self._is_daily_entry(content)
+        if raw_content is None:
+            raw_content = content
+            
+        is_diary = self._is_daily_entry(raw_content)
         
         if is_diary:
             template = self._load_template("diary.md")

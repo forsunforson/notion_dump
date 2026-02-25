@@ -19,6 +19,10 @@ class LLMService:
         logger.info(f"LLMService initialized with model: {self.model}")
 
     async def ask_json(self, system_prompt: str, user_prompt: str) -> dict:
+        logger.info(f"[LLM Request] Model: {self.model}")
+        logger.debug(f"[LLM Request] System prompt: {system_prompt[:200]}...")
+        logger.debug(f"[LLM Request] User prompt: {user_prompt[:500]}...")
+        
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -34,6 +38,8 @@ class LLMService:
             if not result_json:
                 logger.error("Empty response from LLM")
                 return {}
+            
+            logger.info(f"[LLM Response] {result_json[:200]}...")
             
             result = json.loads(result_json)
             return result

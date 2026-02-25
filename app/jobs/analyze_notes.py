@@ -82,18 +82,24 @@ class AnalyzeNotesJob:
             
         try:
             with open(path, "r", encoding="utf-8") as f:
-                content = f.read(8000)
+                raw_content = f.read(8000)
         except Exception as e:
             print(f"Error reading file {path}: {e}")
             return None
             
         filename = path.name
         
-        content = await self._hydrate_context(content, path.parent)
+        hydrated_content = await self._hydrate_context(raw_content, path.parent)
+        
+        is_diary = self.prompt_manager.is_daily_entry(raw_content)
+        template_type = "diary" if is_diary else "article"
+        print(f"[DEBUG] File: {filename}, Template type: {template_type}")
         
         system_prompt = "你是知识库助手。<changed_document> 是用户刚刚修改的内容，<references> 是该文档引用的背景资料（仅供参考，不是本次修改的内容）。请基于这些信息进行总结。"
         
-        user_prompt = self.prompt_manager.build_prompt(str(file_path), content, filename)
+        user_prompt = self.prompt_manager.build_prompt(str(file_path), hydrated_content, filename, raw_content=raw_content)
+        
+        print(f"[DEBUG] User prompt preview: {user_prompt[:500]}...")
         
         analysis_dict = await self.llm.ask_json(system_prompt, user_prompt)
         if not analysis_dict:
