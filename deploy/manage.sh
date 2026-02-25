@@ -1,10 +1,69 @@
 #!/bin/bash
 
-# Get directory of this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 RUN_TASK_SCRIPT="$SCRIPT_DIR/run_task.sh"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="$PROJECT_ROOT/logs/execution.log"
+LOGS_DIR="$PROJECT_ROOT/logs"
+
+USER_TZ="Asia/Shanghai"
+
+select_timezone() {
+    echo ""
+    echo "🌍 Select Timezone"
+    echo "=========================================="
+    echo "Current timezone: $USER_TZ"
+    echo ""
+    echo "Common timezones:"
+    echo "  1. Asia/Shanghai (Beijing, Shanghai)"
+    echo "  2. Asia/Hong_Kong"
+    echo "  3. Asia/Tokyo"
+    echo "  4. Asia/Singapore"
+    echo "  5. America/New_York"
+    echo "  6. America/Los_Angeles"
+    echo "  7. Europe/London"
+    echo "  8. Europe/Paris"
+    echo "  9. Custom (enter manually)"
+    echo "  0. Keep current ($USER_TZ)"
+    echo "=========================================="
+    echo -n "Select option [0-9]: "
+    read tz_choice
+    
+    case $tz_choice in
+        1) USER_TZ="Asia/Shanghai" ;;
+        2) USER_TZ="Asia/Hong_Kong" ;;
+        3) USER_TZ="Asia/Tokyo" ;;
+        4) USER_TZ="Asia/Singapore" ;;
+        5) USER_TZ="America/New_York" ;;
+        6) USER_TZ="America/Los_Angeles" ;;
+        7) USER_TZ="Europe/London" ;;
+        8) USER_TZ="Europe/Paris" ;;
+        9)
+            echo ""
+            echo "Enter timezone (e.g., Asia/Shanghai, America/Chicago)"
+            echo "Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+            echo -n "Timezone: "
+            read custom_tz
+            if [ -n "$custom_tz" ]; then
+                USER_TZ="$custom_tz"
+            else
+                echo "❌ Invalid timezone. Keeping $USER_TZ"
+                return
+            fi
+            ;;
+        0) 
+            echo "Keeping current timezone: $USER_TZ"
+            return
+            ;;
+        *)
+            echo "❌ Invalid option. Keeping $USER_TZ"
+            return
+            ;;
+    esac
+    
+    echo ""
+    echo "✅ Timezone set to: $USER_TZ"
+}
 
 # Ensure run_task.sh is executable
 if [ -f "$RUN_TASK_SCRIPT" ]; then
@@ -24,9 +83,10 @@ show_main_menu() {
     echo "3. 📋 View Current Schedule"
     echo "4. 🗑️  Remove Schedule"
     echo "5. 👀 View Logs (tail -f)"
-    echo "6. ❌ Exit"
+    echo "6. 🌍 Settings (Timezone: $USER_TZ)"
+    echo "7. ❌ Exit"
     echo "=========================================="
-    echo -n "Select an option [1-6]: "
+    echo -n "Select an option [1-7]: "
 }
 
 show_run_menu() {
@@ -85,27 +145,25 @@ schedule_sync_task() {
     echo ""
     echo "📅 Setting up Sync Task..."
     echo "⚠️  Current system time: $(date)"
-    echo "   (Note: GCP VMs often use UTC time by default)"
+    echo "   (Note: Using CRON_TZ=$USER_TZ for scheduling)"
     echo ""
     echo "This task will sync your Notion data and backup to cloud."
     echo ""
     read -p "Enter sync interval in hours (e.g., 4 for every 4 hours, 12 for every 12 hours): " interval
     
-    # Validate input
     if ! [[ "$interval" =~ ^[0-9]+$ ]] || [ "$interval" -lt 1 ] || [ "$interval" -gt 24 ]; then
         echo "❌ Invalid interval. Please enter a number between 1 and 24."
         return
     fi
     
-    # Construct cron job line: 0 */interval * * * 
-    cron_job="0 */$interval * * * $RUN_TASK_SCRIPT --job sync"
+    cron_job="CRON_TZ=${USER_TZ}
+0 */$interval * * * $RUN_TASK_SCRIPT --job sync >> $LOGS_DIR/cron_sync.log 2>&1"
     
-    # Remove existing sync jobs and add new one
     (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job sync"; echo "$cron_job") | crontab -
     
     echo ""
     echo "✅ Sync task scheduled successfully!"
-    echo "   Schedule: Every $interval hour(s)"
+    echo "   Schedule: Every $interval hour(s) ($USER_TZ)"
     echo "   Command: $cron_job"
 }
 
@@ -113,31 +171,27 @@ schedule_morning_task() {
     echo ""
     echo "📅 Setting up Morning Routine..."
     echo "⚠️  Current system time: $(date)"
+    echo "   (Note: Using CRON_TZ=$USER_TZ for scheduling)"
     echo ""
     echo "This task will send a morning greeting to Telegram."
     echo ""
-    echo "Time reference (Beijing Time -> UTC):"
-    echo "  06:00 Beijing = 22:00 UTC (previous day)"
-    echo "  07:00 Beijing = 23:00 UTC (previous day)"
-    echo "  08:00 Beijing = 00:00 UTC"
+    echo "Enter the time in $USER_TZ (e.g., 6 for 06:00, 7 for 07:00)"
     echo ""
-    read -p "Enter UTC hour to run (0-23): " hour
+    read -p "Enter hour to run (0-23, $USER_TZ): " hour
     
-    # Validate input
     if ! [[ "$hour" =~ ^[0-9]+$ ]] || [ "$hour" -lt 0 ] || [ "$hour" -gt 23 ]; then
         echo "❌ Invalid hour. Please enter a number between 0 and 23."
         return
     fi
     
-    # Construct cron job line: 0 hour * * *
-    cron_job="0 $hour * * * $RUN_TASK_SCRIPT --job morning"
+    cron_job="CRON_TZ=${USER_TZ}
+0 $hour * * * $RUN_TASK_SCRIPT --job morning >> $LOGS_DIR/cron_morning.log 2>&1"
     
-    # Remove existing morning jobs and add new one
     (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job morning"; echo "$cron_job") | crontab -
     
     echo ""
     echo "✅ Morning routine scheduled successfully!"
-    echo "   Schedule: Daily at UTC $hour:00"
+    echo "   Schedule: Daily at $hour:00 ($USER_TZ)"
     echo "   Command: $cron_job"
 }
 
@@ -145,6 +199,7 @@ schedule_weekly_task() {
     echo ""
     echo "📅 Setting up Weekly Review..."
     echo "⚠️  Current system time: $(date)"
+    echo "   (Note: Using CRON_TZ=$USER_TZ for scheduling)"
     echo ""
     echo "This task will send a weekly summary to Telegram."
     echo ""
@@ -153,9 +208,8 @@ schedule_weekly_task() {
     echo "  1 = Monday, 2 = Tuesday, ..., 6 = Saturday"
     echo ""
     read -p "Enter day of week (0-7): " day
-    read -p "Enter UTC hour to run (0-23): " hour
+    read -p "Enter hour to run (0-23, $USER_TZ): " hour
     
-    # Validate input
     if ! [[ "$day" =~ ^[0-7]$ ]]; then
         echo "❌ Invalid day. Please enter a number between 0 and 7."
         return
@@ -165,15 +219,14 @@ schedule_weekly_task() {
         return
     fi
     
-    # Construct cron job line: 0 hour * * day
-    cron_job="0 $hour * * $day $RUN_TASK_SCRIPT --job weekly"
+    cron_job="CRON_TZ=${USER_TZ}
+0 $hour * * $day $RUN_TASK_SCRIPT --job weekly >> $LOGS_DIR/cron_weekly.log 2>&1"
     
-    # Remove existing weekly jobs and add new one
     (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job weekly"; echo "$cron_job") | crontab -
     
     echo ""
     echo "✅ Weekly review scheduled successfully!"
-    echo "   Schedule: Weekly on day $day at UTC $hour:00"
+    echo "   Schedule: Weekly on day $day at $hour:00 ($USER_TZ)"
     echo "   Command: $cron_job"
 }
 
@@ -184,8 +237,8 @@ quick_setup() {
     echo "This will set up the following tasks:"
     echo ""
     echo "  1. 🔄 Sync: Every 4 hours"
-    echo "  2. 🌅 Morning: Daily at UTC 22:00 (Beijing 06:00)"
-    echo "  3. 📊 Weekly: Sunday at UTC 12:00 (Beijing 20:00)"
+    echo "  2. 🌅 Morning: Daily at 06:00 ($USER_TZ)"
+    echo "  3. 📊 Weekly: Sunday at 20:00 ($USER_TZ)"
     echo ""
     read -p "Continue with quick setup? [y/N]: " confirm
     
@@ -194,22 +247,22 @@ quick_setup() {
         return
     fi
     
-    # Remove all existing jobs for this script
     (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT") | crontab -
     
-    # Add all three jobs
-    (crontab -l 2>/dev/null; \
-     echo "0 */4 * * * $RUN_TASK_SCRIPT --job sync"; \
-     echo "0 22 * * * $RUN_TASK_SCRIPT --job morning"; \
-     echo "0 12 * * 0 $RUN_TASK_SCRIPT --job weekly") | crontab -
+    CRON_JOB="CRON_TZ=${USER_TZ}
+0 */4 * * * $RUN_TASK_SCRIPT --job sync >> $LOGS_DIR/cron_sync.log 2>&1
+0 6 * * * $RUN_TASK_SCRIPT --job morning >> $LOGS_DIR/cron_morning.log 2>&1
+0 20 * * 0 $RUN_TASK_SCRIPT --job weekly >> $LOGS_DIR/cron_weekly.log 2>&1"
+    
+    (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
     
     echo ""
     echo "✅ Quick setup completed!"
     echo ""
-    echo "Scheduled tasks:"
+    echo "Scheduled tasks ($USER_TZ):"
     echo "  🔄 Sync: Every 4 hours"
-    echo "  🌅 Morning: Daily at UTC 22:00 (Beijing 06:00)"
-    echo "  📊 Weekly: Sunday at UTC 12:00 (Beijing 20:00)"
+    echo "  🌅 Morning: Daily at 06:00"
+    echo "  📊 Weekly: Sunday at 20:00"
 }
 
 schedule_submenu() {
@@ -337,7 +390,8 @@ while true; do
         3) view_schedule ;;
         4) unschedule_task ;;
         5) view_logs ;;
-        6) echo "Bye! 👋"; exit 0 ;;
+        6) select_timezone ;;
+        7) echo "Bye! 👋"; exit 0 ;;
         *) echo "❌ Invalid option. Please try again." ;;
     esac
 done
