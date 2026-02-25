@@ -20,7 +20,7 @@ class TelegramService:
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
     
-    async def send_message(self, text: str, parse_mode: str = "Markdown") -> bool:
+    async def send_message(self, text: str) -> bool:
         if not self.is_configured:
             logger.warning("Telegram not configured. Skipping message send.")
             return False
@@ -29,8 +29,7 @@ class TelegramService:
         
         payload = {
             "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": parse_mode
+            "text": text
         }
         
         try:

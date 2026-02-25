@@ -158,6 +158,7 @@ class DailyRoutines:
         logger.info("Starting morning routine (dual-track mode)...")
         
         profile = self._load_profile()
+        user_name = profile.get('name', 'ywy')
         preferences = profile.get("preferences", {})
         physical_baseline = profile.get("physical_baseline", {})
         
@@ -181,7 +182,7 @@ class DailyRoutines:
         
         message_a = ""
         try:
-            system_prompt_a = "你是一个贴心的私人助理。现在是早上。请根据用户最近的知识库报告生成晨间问候。用友好的口吻总结昨夜的知识沉淀或重要待办，语气轻松，控制在 300 字以内。"
+            system_prompt_a = f"你是一个贴心的私人助理。用户的名字是 {user_name}。现在是早上。请根据用户最近的知识库报告生成晨间问候。用友好的口吻总结昨夜的知识沉淀或重要待办，语气轻松，控制在 300 字以内。打招呼时直接使用「{user_name}」这个名字，绝对不要输出 [User Name] 这种占位符。"
             
             if latest_report:
                 user_prompt_a = f"请根据以下知识库报告生成晨间问候：\n\n<report>\n{latest_report}\n</report>"
@@ -205,7 +206,7 @@ class DailyRoutines:
         
         message_b = ""
         try:
-            system_prompt_b = "你是一个专业的私人教练。请根据用户的长期训练目标、预设的每周规律、今天是星期几，以及用户过去 3 天的量化状态数据，生成今日的专属训练建议。要求：1. 简要评价昨日的训练和恢复状态；2. 给出今日明确的训练重点或休息建议；3. 控制在 300 字以内，专业且有活力。"
+            system_prompt_b = f"你是一个专业的私人教练。用户的名字是 {user_name}。请根据用户的长期训练目标、预设的每周规律、今天是星期几，以及用户过去 3 天的量化状态数据，生成今日的专属训练建议。要求：1. 简要评价昨日的训练和恢复状态；2. 给出今日明确的训练重点或休息建议；3. 控制在 300 字以内，专业且有活力。打招呼时直接使用「{user_name}」这个名字，绝对不要输出 [User Name] 这种占位符。"
             
             routine_desc = weekly_routine.get("description", "未设置")
             routine_pattern = weekly_routine.get("pattern", "未设置")
