@@ -5,19 +5,13 @@ import datetime
 import re
 import aiofiles
 from pathlib import Path
-from openai import AsyncOpenAI
-from services.prompt_manager import PromptManager
+from app.services.prompt_manager import PromptManager
+from app.services.llm_service import LLMService
 
-class ContentObserver:
+
+class AnalyzeNotesJob:
     def __init__(self):
-        self.api_key = os.getenv("AI_API_KEY")
-        self.base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
-        self.model = os.getenv("AI_MODEL", "gpt-3.5-turbo")
-        
-        if not self.api_key:
-            print("Warning: AI_API_KEY not set. Observer functionalities might fail.")
-            
-        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.llm = LLMService()
         self.prompt_manager = PromptManager()
 
     async def analyze_changes(self, file_paths: list):
@@ -27,7 +21,7 @@ class ContentObserver:
         if not file_paths:
             return
 
-        print(f"Observer starting analysis for {len(file_paths)} files...")
+        print(f"AnalyzeNotesJob starting analysis for {len(file_paths)} files...")
         
         sem = asyncio.Semaphore(5)
         tasks = []
@@ -36,13 +30,12 @@ class ContentObserver:
             
         results = await asyncio.gather(*tasks)
         
-        # Filter out None results (failed or skipped)
         valid_results = [r for r in results if r]
         
         if valid_results:
             self._generate_report(valid_results)
         else:
-            print("Observer: No valid analysis results to report.")
+            print("AnalyzeNotesJob: No valid analysis results to report.")
 
     async def _analyze_one_file_safe(self, file_path, sem):
         async with sem:
@@ -87,43 +80,35 @@ class ContentObserver:
             print(f"File not found: {path}")
             return None
             
-        # Read first 8000 chars to avoid context overflow
         try:
             with open(path, "r", encoding="utf-8") as f:
-                content = f.read(8000)
+                raw_content = f.read(8000)
         except Exception as e:
             print(f"Error reading file {path}: {e}")
             return None
             
         filename = path.name
         
-        content = await self._hydrate_context(content, path.parent)
+        hydrated_content = await self._hydrate_context(raw_content, path.parent)
+        
+        is_diary = self.prompt_manager.is_daily_entry(raw_content)
+        template_type = "diary" if is_diary else "article"
+        print(f"[DEBUG] File: {filename}, Template type: {template_type}")
         
         system_prompt = "你是知识库助手。<changed_document> 是用户刚刚修改的内容，<references> 是该文档引用的背景资料（仅供参考，不是本次修改的内容）。请基于这些信息进行总结。"
         
-        user_prompt = self.prompt_manager.build_prompt(str(file_path), content, filename)
+        user_prompt = self.prompt_manager.build_prompt(str(file_path), hydrated_content, filename, raw_content=raw_content)
         
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={"type": "json_object"},
-                stream=False
-            )
+        print(f"[DEBUG] User prompt preview: {user_prompt[:5000]}...")
+        
+        analysis_dict = await self.llm.ask_json(system_prompt, user_prompt)
+        if not analysis_dict:
+            return None
             
-            result_json = response.choices[0].message.content
-            analysis = json.loads(result_json)
-            
-            return {
-                "filename": filename,
-                "analysis": analysis
-            }
-            
-        except Exception as e:
-            raise e
+        return {
+            "filename": filename,
+            "analysis": analysis_dict
+        }
 
     def _process_daily_metrics(self, analysis: dict, project_root: Path):
         metrics = analysis.get("daily_metrics")

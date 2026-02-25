@@ -105,40 +105,15 @@ class PromptManager:
     def _format_profile(self, profile_data: dict) -> str:
         if not profile_data:
             return self.DEFAULT_PROFILE_STR
-            
-        lines = []
-        
-        if "name" in profile_data:
-            lines.append(f"姓名: {profile_data['name']}")
-            
-        if "physical_state" in profile_data:
-            ps = profile_data["physical_state"]
-            state_parts = []
-            if "energy_level" in ps:
-                state_parts.append(f"精力水平: {ps['energy_level']}")
-            if "health_status" in ps:
-                state_parts.append(f"健康状态: {ps['health_status']}")
-            if state_parts:
-                lines.append("身体状态: " + ", ".join(state_parts))
-                
-        if "recent_focus" in profile_data:
-            rf = profile_data["recent_focus"]
-            if "primary_goals" in rf and rf["primary_goals"]:
-                lines.append("近期目标: " + ", ".join(rf["primary_goals"]))
-            if "current_projects" in rf and rf["current_projects"]:
-                lines.append("当前项目: " + ", ".join(rf["current_projects"]))
-                
-        if "preferences" in profile_data:
-            pref = profile_data["preferences"]
-            if "communication_style" in pref:
-                lines.append(f"沟通风格: {pref['communication_style']}")
-                
-        return "\n".join(lines) if lines else self.DEFAULT_PROFILE_STR
+        return yaml.dump(profile_data, allow_unicode=True, default_flow_style=False).strip()
 
     def _is_daily_entry(self, content: str) -> bool:
         metadata = self._parse_frontmatter(content)
         title = metadata.get('title', '')
         return title == self.DAILY_ENTRY_TITLE
+
+    def is_daily_entry(self, content: str) -> bool:
+        return self._is_daily_entry(content)
 
     def _load_template(self, template_name: str) -> Optional[str]:
         template_path = self.templates_dir / template_name
@@ -153,13 +128,16 @@ class PromptManager:
             print(f"Error loading template {template_name}: {e}")
             return None
 
-    def build_prompt(self, file_path: str, content: str, filename: str = None) -> str:
+    def build_prompt(self, file_path: str, content: str, filename: str = None, raw_content: str = None) -> str:
         profile_str = self.load_profile()
         
         if filename is None:
             filename = Path(file_path).name
             
-        is_diary = self._is_daily_entry(content)
+        if raw_content is None:
+            raw_content = content
+            
+        is_diary = self._is_daily_entry(raw_content)
         
         if is_diary:
             template = self._load_template("diary.md")

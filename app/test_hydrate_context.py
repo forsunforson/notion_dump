@@ -8,7 +8,7 @@ import sys
 # Add project root to sys.path to ensure we can import app
 sys.path.append(os.getcwd())
 
-from observer import ContentObserver
+from jobs.analyze_notes import AnalyzeNotesJob
 
 import argparse
 
@@ -31,9 +31,8 @@ async def hydrate_file(file_path_str):
         print(f"Error reading file: {e}")
         return
 
-    observer = ContentObserver()
-    # Use parent dir as root_dir for resolving relative links
-    hydrated = await observer._hydrate_context(content, path.parent)
+    job = AnalyzeNotesJob()
+    hydrated = await job._hydrate_context(content, path.parent)
     
     print("\n=== Hydrated Output ===\n")
     print(hydrated)
@@ -90,9 +89,9 @@ Here are more links:
         print(content.strip())
 
         # 4. Run _hydrate_context
-        observer = ContentObserver()
+        job = AnalyzeNotesJob()
         print("\nRunning _hydrate_context...")
-        hydrated_content = await observer._hydrate_context(content, test_dir)
+        hydrated_content = await job._hydrate_context(content, test_dir)
 
         print("\n=== Output Result ===")
         print(hydrated_content)
