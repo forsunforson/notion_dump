@@ -206,6 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# service status
 service_account.json
 notion_blocks_dump.json
 database.json
@@ -214,6 +215,9 @@ notion-dump-history.jsonl
 logs/
 _reports/
 notion_output/
+
+# iOS file
+.DS_Store
 
 # User private configuration
 config/profile.yaml
