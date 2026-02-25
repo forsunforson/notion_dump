@@ -7,22 +7,15 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import yaml
-from openai import AsyncOpenAI
 from app.services.telegram_service import TelegramService
+from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
 
 class DailyRoutines:
     def __init__(self):
-        self.api_key = os.getenv("AI_API_KEY")
-        self.base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
-        self.model = os.getenv("AI_MODEL", "gpt-3.5-turbo")
-        
-        if not self.api_key:
-            raise ValueError("AI_API_KEY not set")
-        
-        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.llm = LLMService()
         self.telegram = TelegramService()
         self.project_root = Path(os.getcwd())
         self.reports_dir = self.project_root / "_reports"
@@ -328,17 +321,11 @@ class DailyRoutines:
             else:
                 user_prompt_a = "暂无新的知识库报告，请生成一条轻松的晨间问候。"
             
-            response_a = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt_a},
-                    {"role": "user", "content": user_prompt_a}
-                ],
-                max_tokens=500,
-                stream=False
-            )
-            message_a = response_a.choices[0].message.content
-            logger.info(f"Generated knowledge brief: {message_a[:100]}...")
+            message_a = await self.llm.ask_text(system_prompt_a, user_prompt_a, max_tokens=500)
+            if not message_a:
+                message_a = "早安！知识简报生成失败，请稍后查看。"
+            else:
+                logger.info(f"Generated knowledge brief: {message_a[:100]}...")
         except Exception as e:
             logger.error(f"Error generating knowledge brief: {e}")
             message_a = "早安！知识简报生成失败，请稍后查看。"
@@ -381,17 +368,11 @@ class DailyRoutines:
 
 请根据以上真实记录，生成今日的训练计划。"""
             
-            response_b = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt_b},
-                    {"role": "user", "content": user_prompt_b}
-                ],
-                max_tokens=500,
-                stream=False
-            )
-            message_b = response_b.choices[0].message.content
-            logger.info(f"Generated training plan: {message_b[:100]}...")
+            message_b = await self.llm.ask_text(system_prompt_b, user_prompt_b, max_tokens=500)
+            if not message_b:
+                message_b = "今日训练建议生成失败，请稍后查看。"
+            else:
+                logger.info(f"Generated training plan: {message_b[:100]}...")
         except Exception as e:
             logger.error(f"Error generating training plan: {e}")
             message_b = "今日训练建议生成失败，请稍后查看。"
@@ -445,17 +426,11 @@ class DailyRoutines:
         user_prompt = f"请根据以下本周数据生成本周知识回顾：\n\n{context}"
         
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=1200,
-                stream=False
-            )
+            message = await self.llm.ask_text(system_prompt, user_prompt, max_tokens=1200)
+            if not message:
+                logger.error("Empty response from LLM in weekly review")
+                return False
             
-            message = response.choices[0].message.content
             logger.info(f"Generated weekly review: {message[:100]}...")
             
             success = await self.telegram.send_message(message)

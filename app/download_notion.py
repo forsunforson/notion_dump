@@ -12,7 +12,7 @@ import asyncio
 from notion_client import Client
 from notion_to_md import NotionToMarkdown
 from utils import NotionMapper
-from observer import ContentObserver
+from jobs.analyze_notes import AnalyzeNotesJob
 from services.git_service import GitService
 
 # Load environment variables
@@ -617,34 +617,30 @@ def print_page_markdown(url_or_id):
 def main():
     parser = argparse.ArgumentParser(description="Notion Dump with Incremental Sync")
     parser.add_argument("--force", "--full", action="store_true", help="Force full sync, ignoring last sync time.")
-    parser.add_argument("--skip-observer", action="store_true", help="Skip AI analysis of changed files.")
-    parser.add_argument("--with-observer", action="store_true", help="Force enable AI analysis even during full sync.")
+    parser.add_argument("--skip-analyze", action="store_true", help="Skip AI analysis of changed files.")
+    parser.add_argument("--with-analyze", action="store_true", help="Force enable AI analysis even during full sync.")
     parser.add_argument("--print-url", help="Print Markdown for a specific page URL/ID to stdout without saving.")
     
-    # Parse known args to avoid issues if other args are passed (though we only expect one)
     args, unknown = parser.parse_known_args()
     
     if args.print_url:
         print_page_markdown(args.print_url)
         return
 
-    # Determine if we should run observer
-    # Default: Run observer on incremental sync, skip on full sync (unless forced)
-    should_run_observer = True
+    should_run_analyze = True
     
     last_sync_time = load_state()
     is_full_sync = args.force or (last_sync_time is None)
     
-    if args.skip_observer:
-        should_run_observer = False
+    if args.skip_analyze:
+        should_run_analyze = False
     elif is_full_sync:
-        if args.with_observer:
-            should_run_observer = True
+        if args.with_analyze:
+            should_run_analyze = True
         else:
-            print("Full sync detected. Observer is disabled by default to save tokens. Use --with-observer to enable.")
-            should_run_observer = False
+            print("Full sync detected. Analysis is disabled by default to save tokens. Use --with-analyze to enable.")
+            should_run_analyze = False
     
-    # Initialize Git Service
     try:
         git_service = GitService(OUTPUT_DIR)
         git_service.init_repo()
@@ -655,19 +651,18 @@ def main():
 
     changed_files = sync_incremental(force=args.force)
     
-    # Sync changes to git
     if git_service:
         try:
             git_service.sync_changes()
         except Exception as e:
             print(f"Warning: Git sync failed: {e}")
 
-    if changed_files and should_run_observer:
-        observer = ContentObserver()
+    if changed_files and should_run_analyze:
+        job = AnalyzeNotesJob()
         try:
-            asyncio.run(observer.analyze_changes(changed_files))
+            asyncio.run(job.analyze_changes(changed_files))
         except Exception as e:
-            print(f"Error running observer: {e}")
+            print(f"Error running analyze job: {e}")
 
 if __name__ == "__main__":
     main()

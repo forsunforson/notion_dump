@@ -9,7 +9,7 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
 *   **Link to Page Support**: Automatically resolves "Link to Page" blocks to Markdown links, using cached titles or local file metadata.
 *   **YAML Frontmatter**: Adds metadata (title, created time, last edited time, tags, etc.) as YAML frontmatter to generated Markdown files.
 *   **Print to Console**: Option to print converted Markdown directly to stdout without saving to disk.
-*   **Content Observer**: (Optional) AI analysis of changed files.
+*   **Content Analysis**: (Optional) AI analysis of changed files.
 *   **Git Backup**: Automatically commits and pushes generated Markdown files to a separate Git repository.
 *   **Telegram Notifications**: Send AI-generated morning greetings and weekly reviews to Telegram.
 *   **Task Routing**: Support for different job types (sync, morning routine, weekly review) via CLI.
@@ -57,7 +57,7 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
 The application now supports different job types via the `--job` parameter:
 
 ```bash
-python main.py --job <sync|morning|weekly>
+python main.py --job <sync|morning|weekly|analyze>
 ```
 
 ### Sync Job (Default)
@@ -70,8 +70,8 @@ python main.py --job sync
 
 Options:
 - `--force` or `--full`: Force full sync, ignoring last sync time
-- `--skip-observer`: Skip AI analysis of changed files
-- `--with-observer`: Force enable AI analysis even during full sync
+- `--skip-analyze`: Skip AI analysis of changed files
+- `--with-analyze`: Force enable AI analysis even during full sync
 
 Examples:
 ```bash
@@ -81,8 +81,8 @@ python main.py
 # Force full sync
 python main.py --job sync --force
 
-# Full sync with AI observer
-python main.py --job sync --force --with-observer
+# Full sync with AI analysis
+python main.py --job sync --force --with-analyze
 ```
 
 ### Morning Routine
@@ -110,6 +110,19 @@ This will:
 1. Collect reports and activity logs from the past 7 days
 2. Use AI to generate a comprehensive weekly review
 3. Send the summary to your Telegram chat
+
+### Analyze Job
+
+Run AI analysis on existing markdown files:
+
+```bash
+python main.py --job analyze
+```
+
+This will:
+1. Find all markdown files in the output directory
+2. Run AI analysis on each file
+3. Generate a report in `_reports/` directory
 
 ### Legacy Usage
 
@@ -164,12 +177,13 @@ For more details, check [deploy/README.md](deploy/README.md).
 
 *   `main.py`: Main entry point with CLI argument parsing and job routing.
 *   `app/download_notion.py`: Core syncing logic for downloading Notion pages.
+*   `app/services/llm_service.py`: Unified LLM service for AI interactions.
 *   `app/services/git_service.py`: Handles Git operations for the backup repository.
 *   `app/services/telegram_service.py`: Handles Telegram message sending.
 *   `app/services/prompt_manager.py`: Dynamic prompt loading and template management for AI analysis.
 *   `app/jobs/routines.py`: Contains morning routine and weekly review logic.
+*   `app/jobs/analyze_notes.py`: Handles AI analysis of changed content.
 *   `app/notion_to_md.py`: Core logic for converting Notion blocks to Markdown.
-*   `app/observer.py`: Handles AI observation of changed content.
 *   `app/utils.py`: Utility functions for mapping Notion properties and handling data formats.
 *   `config/`: User configuration directory containing profile and prompt templates.
     *   `config/profile.yaml`: User profile for personalized AI analysis.

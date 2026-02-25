@@ -14,31 +14,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-sys.path.insert(0, str(Path(__file__).parent / "app"))
-
-from download_notion import sync_incremental, load_state
-from observer import ContentObserver
-from services.git_service import GitService
-from jobs.routines import DailyRoutines
-
 OUTPUT_DIR = "notion_output"
 
 
-def run_sync_job(force: bool = False, skip_observer: bool = False, with_observer: bool = False):
+async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_analyze: bool = False):
+    from app.download_notion import sync_incremental, load_state
+    from app.services.git_service import GitService
+    from app.jobs.analyze_notes import AnalyzeNotesJob
+
     logger.info("Starting sync job...")
     
-    should_run_observer = True
+    should_run_analyze = True
     last_sync_time = load_state()
     is_full_sync = force or (last_sync_time is None)
     
-    if skip_observer:
-        should_run_observer = False
+    if skip_analyze:
+        should_run_analyze = False
     elif is_full_sync:
-        if with_observer:
-            should_run_observer = True
+        if with_analyze:
+            should_run_analyze = True
         else:
-            logger.info("Full sync detected. Observer is disabled by default to save tokens. Use --with-observer to enable.")
-            should_run_observer = False
+            logger.info("Full sync detected. Analysis is disabled by default to save tokens. Use --with-analyze to enable.")
+            should_run_analyze = False
     
     try:
         git_service = GitService(OUTPUT_DIR)
@@ -56,21 +53,23 @@ def run_sync_job(force: bool = False, skip_observer: bool = False, with_observer
         except Exception as e:
             logger.warning(f"Git sync failed: {e}")
 
-    if changed_files and should_run_observer:
-        observer = ContentObserver()
+    if changed_files and should_run_analyze:
+        job = AnalyzeNotesJob()
         try:
-            asyncio.run(observer.analyze_changes(changed_files))
+            await job.analyze_changes(changed_files)
         except Exception as e:
-            logger.error(f"Error running observer: {e}")
+            logger.error(f"Error running analyze job: {e}")
     
     logger.info("Sync job completed.")
 
 
 async def run_morning_job():
+    from app.jobs.routines import DailyRoutines
+    
     logger.info("Starting morning routine job...")
     try:
-        routines = DailyRoutines()
-        success = await routines.morning_routine()
+        job = DailyRoutines()
+        success = await job.morning_routine()
         if success:
             logger.info("Morning routine completed successfully.")
         else:
@@ -81,10 +80,12 @@ async def run_morning_job():
 
 
 async def run_weekly_job():
+    from app.jobs.routines import DailyRoutines
+    
     logger.info("Starting weekly review job...")
     try:
-        routines = DailyRoutines()
-        success = await routines.weekly_review()
+        job = DailyRoutines()
+        success = await job.weekly_review()
         if success:
             logger.info("Weekly review completed successfully.")
         else:
@@ -92,6 +93,37 @@ async def run_weekly_job():
     except Exception as e:
         logger.error(f"Weekly review failed: {e}")
         sys.exit(1)
+
+
+async def run_analyze_job():
+    from app.jobs.analyze_notes import AnalyzeNotesJob
+    from app.download_notion import load_state
+    
+    logger.info("Starting analyze job...")
+    
+    last_sync_time = load_state()
+    if not last_sync_time:
+        logger.warning("No previous sync found. Run 'python main.py --job sync' first.")
+        return
+    
+    notion_output = Path(OUTPUT_DIR)
+    if not notion_output.exists():
+        logger.warning(f"Output directory {OUTPUT_DIR} not found.")
+        return
+    
+    md_files = list(notion_output.glob("**/*.md"))
+    if not md_files:
+        logger.info("No markdown files found to analyze.")
+        return
+    
+    logger.info(f"Found {len(md_files)} markdown files to analyze.")
+    
+    job = AnalyzeNotesJob()
+    try:
+        await job.analyze_changes([str(f) for f in md_files])
+        logger.info("Analyze job completed.")
+    except Exception as e:
+        logger.error(f"Analyze job failed: {e}")
 
 
 def main():
@@ -104,14 +136,15 @@ Examples:
   python main.py --job sync --force            # Force full sync
   python main.py --job morning                 # Run morning routine
   python main.py --job weekly                  # Run weekly review
+  python main.py --job analyze                 # Run analysis on existing files
         """
     )
     
     parser.add_argument(
         "--job",
-        choices=["sync", "morning", "weekly"],
+        choices=["sync", "morning", "weekly", "analyze"],
         default="sync",
-        help="Job type to run: sync (default), morning, or weekly"
+        help="Job type to run: sync (default), morning, weekly, or analyze"
     )
     parser.add_argument(
         "--force", "--full",
@@ -119,12 +152,12 @@ Examples:
         help="Force full sync (only for sync job)"
     )
     parser.add_argument(
-        "--skip-observer",
+        "--skip-analyze",
         action="store_true",
         help="Skip AI analysis of changed files (only for sync job)"
     )
     parser.add_argument(
-        "--with-observer",
+        "--with-analyze",
         action="store_true",
         help="Force enable AI analysis even during full sync (only for sync job)"
     )
@@ -134,15 +167,17 @@ Examples:
     logger.info(f"Running job: {args.job}")
     
     if args.job == "sync":
-        run_sync_job(
+        asyncio.run(run_sync_job(
             force=args.force,
-            skip_observer=args.skip_observer,
-            with_observer=args.with_observer
-        )
+            skip_analyze=args.skip_analyze,
+            with_analyze=args.with_analyze
+        ))
     elif args.job == "morning":
         asyncio.run(run_morning_job())
     elif args.job == "weekly":
         asyncio.run(run_weekly_job())
+    elif args.job == "analyze":
+        asyncio.run(run_analyze_job())
     else:
         logger.error(f"Unknown job type: {args.job}")
         sys.exit(1)
