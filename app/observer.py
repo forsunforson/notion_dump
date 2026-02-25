@@ -125,8 +125,42 @@ class ContentObserver:
         except Exception as e:
             raise e
 
+    def _process_daily_metrics(self, analysis: dict, project_root: Path):
+        metrics = analysis.get("daily_metrics")
+        if not metrics or not isinstance(metrics, dict):
+            return
+        
+        has_actual_data = any(
+            v is not None for k, v in metrics.items() if k != "date"
+        )
+        if not has_actual_data:
+            return
+        
+        metrics_path = project_root / "notion_output" / "metrics.jsonl"
+        try:
+            metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metrics_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+            print(f"Metrics appended to: {metrics_path}")
+        except Exception as e:
+            print(f"Error writing metrics: {e}")
+
+    def _format_insights(self, insights: dict) -> str:
+        if not insights or not isinstance(insights, dict):
+            return ""
+        
+        md_lines = ["**Insights**:\n"]
+        for key, value in insights.items():
+            if value:
+                formatted_key = key.replace("_", " ").title()
+                md_lines.append(f"- **{formatted_key}**: {value}\n")
+        
+        if len(md_lines) == 1:
+            return ""
+        md_lines.append("\n")
+        return "".join(md_lines)
+
     def _generate_report(self, results):
-        # Create _reports folder in project root (assuming CWD is project root)
         project_root = Path(os.getcwd())
         reports_dir = project_root / "_reports"
         reports_dir.mkdir(exist_ok=True)
@@ -134,26 +168,36 @@ class ContentObserver:
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         report_file = reports_dir / f"report_{today_str}.md"
         
-        # Append to the file
         timestamp = datetime.datetime.now().strftime('%H:%M:%S')
         markdown_content = f"\n## Analysis Report - {timestamp}\n\n"
         
         for item in results:
-            filename = item["filename"]
-            analysis = item["analysis"]
+            filename = item.get("filename", "Unknown")
+            analysis = item.get("analysis", {})
+            
+            if not isinstance(analysis, dict):
+                analysis = {}
+            
+            self._process_daily_metrics(analysis, project_root)
             
             summary = analysis.get("summary", "No summary provided.")
             action_items = analysis.get("action_items", [])
             tags = analysis.get("tags", [])
+            insights = analysis.get("insights")
             
             markdown_content += f"### {filename}\n"
             markdown_content += f"**Summary**: {summary}\n\n"
             
-            if action_items:
+            if action_items and isinstance(action_items, list):
                 markdown_content += "**Action Items**:\n"
                 for action in action_items:
-                    markdown_content += f"- [ ] {action}\n"
+                    if action:
+                        markdown_content += f"- [ ] {action}\n"
                 markdown_content += "\n"
+            
+            insights_md = self._format_insights(insights)
+            if insights_md:
+                markdown_content += insights_md
             
             if tags:
                 tag_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
