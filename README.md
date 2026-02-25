@@ -1,6 +1,6 @@
 # Notion Dump
 
-A robust tool to export Notion pages to Markdown with support for incremental sync, "Link to Page" blocks, and AI-powered content observation.
+A robust tool to export Notion pages to Markdown with support for incremental sync, "Link to Page" blocks, AI-powered content observation, and Telegram notifications.
 
 ## Features
 
@@ -11,6 +11,8 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
 *   **Print to Console**: Option to print converted Markdown directly to stdout without saving to disk.
 *   **Content Observer**: (Optional) AI analysis of changed files.
 *   **Git Backup**: Automatically commits and pushes generated Markdown files to a separate Git repository.
+*   **Telegram Notifications**: Send AI-generated morning greetings and weekly reviews to Telegram.
+*   **Task Routing**: Support for different job types (sync, morning routine, weekly review) via CLI.
 
 ## Installation
 
@@ -24,7 +26,7 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
     ```bash
     pip install -r requirements.txt
     ```
-    *(Note: Ensure you have a `requirements.txt` with `notion-client`, `python-dotenv`, `pyyaml`, etc.)*
+    *(Note: Ensure you have a `requirements.txt` with `notion-client`, `python-dotenv`, `pyyaml`, `openai`, `aiohttp`, etc.)*
 
 3.  Configure environment variables:
     Create a `.env` file in the root directory:
@@ -32,43 +34,96 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
     notion_token=your_integration_token
     page_id=your_root_page_id
     
+    # AI Configuration
+    AI_API_KEY=your_openai_api_key
+    AI_BASE_URL=https://api.openai.com/v1
+    AI_MODEL=gpt-3.5-turbo
+    
     # Git Backup Configuration (Optional)
     GIT_REMOTE_URL=git@github.com:your-user/your-backup-repo.git
     GIT_BRANCH=main
     GIT_USER_NAME=Notion Backup Bot
     GIT_USER_EMAIL=bot@example.com
+    
+    # Telegram Configuration (Optional)
+    TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+    TELEGRAM_CHAT_ID=your_chat_id
     ```
 
 ## Usage
 
-### Standard Sync
-Run the main script to start an incremental sync:
+### Job Types
+
+The application now supports different job types via the `--job` parameter:
+
 ```bash
+python main.py --job <sync|morning|weekly>
+```
+
+### Sync Job (Default)
+
+Run incremental sync to download and analyze changed Notion pages:
+
+```bash
+python main.py --job sync
+```
+
+Options:
+- `--force` or `--full`: Force full sync, ignoring last sync time
+- `--skip-observer`: Skip AI analysis of changed files
+- `--with-observer`: Force enable AI analysis even during full sync
+
+Examples:
+```bash
+# Incremental sync (default)
+python main.py
+
+# Force full sync
+python main.py --job sync --force
+
+# Full sync with AI observer
+python main.py --job sync --force --with-observer
+```
+
+### Morning Routine
+
+Generate and send a morning greeting to Telegram based on recent knowledge base changes:
+
+```bash
+python main.py --job morning
+```
+
+This will:
+1. Read the latest report from `_reports/` directory
+2. Use AI to generate a friendly morning message
+3. Send the message to your Telegram chat
+
+### Weekly Review
+
+Generate and send a weekly summary to Telegram:
+
+```bash
+python main.py --job weekly
+```
+
+This will:
+1. Collect reports and activity logs from the past 7 days
+2. Use AI to generate a comprehensive weekly review
+3. Send the summary to your Telegram chat
+
+### Legacy Usage
+
+The original script is still available:
+
+```bash
+# Standard sync
 python3 app/download_notion.py
-```
 
-### Force Full Sync
-To ignore the last sync time and download all pages:
-```bash
+# Force full sync
 python3 app/download_notion.py --force
-```
 
-### Print Page to Console
-To convert a specific Notion page and print the Markdown to the terminal (useful for testing or single-page export):
-```bash
+# Print page to console
 python3 app/download_notion.py --print-url <Notion_Page_URL_or_ID>
-```
-
-### Skip AI Observer
-To skip the AI analysis step:
-```bash
-python3 app/download_notion.py --skip-observer
-```
-
-### Force AI Observer (Full Sync)
-By default, the AI Observer is disabled during full syncs (`--force`) to save tokens. To force enable it:
-```bash
-python3 app/download_notion.py --force --with-observer
 ```
 
 ## Deployment
@@ -88,19 +143,40 @@ We provide scripts for easy deployment and scheduling on Linux servers (e.g., GC
     ./deploy/run_task.sh
     ```
 
+### Scheduling with Cron
+
+You can schedule different jobs using cron:
+
+```bash
+# Morning routine at 8:00 AM every day
+0 8 * * * cd /path/to/notion-dump && python main.py --job morning
+
+# Weekly review at 9:00 AM every Monday
+0 9 * * 1 cd /path/to/notion-dump && python main.py --job weekly
+
+# Sync every hour
+0 * * * * cd /path/to/notion-dump && python main.py --job sync
+```
+
 For more details, check [deploy/README.md](deploy/README.md).
 
 ## Architecture
 
-*   `app/download_notion.py`: Main entry point. Handles syncing logic, argument parsing, and orchestrates the download process.
+*   `main.py`: Main entry point with CLI argument parsing and job routing.
+*   `app/download_notion.py`: Core syncing logic for downloading Notion pages.
 *   `app/services/git_service.py`: Handles Git operations for the backup repository.
-*   `app/notion_to_md.py`: Core logic for converting Notion blocks to Markdown. Includes intelligent title resolution for linked pages.
+*   `app/services/telegram_service.py`: Handles Telegram message sending.
+*   `app/jobs/routines.py`: Contains morning routine and weekly review logic.
+*   `app/notion_to_md.py`: Core logic for converting Notion blocks to Markdown.
 *   `app/observer.py`: Handles AI observation of changed content.
 *   `app/utils.py`: Utility functions for mapping Notion properties and handling data formats.
 
 ## Recent Updates
 
+*   **Telegram Notifications**: Added support for sending AI-generated messages to Telegram.
+*   **Task Routing**: New CLI with `--job` parameter for different task types.
+*   **Morning Routine**: AI-generated morning greetings based on recent changes.
+*   **Weekly Review**: AI-generated weekly summaries of knowledge base activity.
 *   **Link to Page Fix**: "Link to Page" blocks are now correctly converted to Markdown links `[Page Title](PageID.md)`.
 *   **Optimized Title Resolution**: Page titles are resolved using a 3-layer strategy: Memory Cache -> Local File YAML Frontmatter -> Notion API.
 *   **Git Backup**: Added support for automatic Git backup of the output directory to a separate repository.
-*   **CLI Improvements**: Added `--print-url` for quick single-page exports.

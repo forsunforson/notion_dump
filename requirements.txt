@@ -17,3 +17,6 @@ openai
 
 # Async file I/O
 aiofiles
+
+# Async HTTP client
+aiohttp
