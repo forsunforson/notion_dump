@@ -2,7 +2,10 @@ import os
 import json
 import logging
 import datetime
+import asyncio
 from pathlib import Path
+from zoneinfo import ZoneInfo
+import yaml
 from openai import AsyncOpenAI
 from app.services.telegram_service import TelegramService
 
@@ -23,6 +26,46 @@ class DailyRoutines:
         self.project_root = Path(os.getcwd())
         self.reports_dir = self.project_root / "_reports"
         self.history_file = self.project_root / "notion-dump-history.jsonl"
+        self.profile_file = self.project_root / "config" / "profile.yaml"
+        self.metrics_file = self.project_root / "notion_output" / "metrics.jsonl"
+    
+    def _load_profile(self) -> dict:
+        if not self.profile_file.exists():
+            logger.warning(f"Profile file not found: {self.profile_file}")
+            return {}
+        
+        try:
+            with open(self.profile_file, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.error(f"Error reading profile file: {e}")
+            return {}
+    
+    def _get_recent_metrics(self, count: int = 3) -> list:
+        if not self.metrics_file.exists():
+            logger.warning(f"Metrics file not found: {self.metrics_file}")
+            return []
+        
+        try:
+            lines = []
+            with open(self.metrics_file, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+                lines = all_lines[-count:] if len(all_lines) >= count else all_lines
+            
+            metrics = []
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    metrics.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            
+            return metrics
+        except Exception as e:
+            logger.error(f"Error reading metrics file: {e}")
+            return []
     
     def _get_latest_report(self) -> str:
         if not self.reports_dir.exists():
@@ -65,7 +108,17 @@ class DailyRoutines:
         if not self.history_file.exists():
             return ""
         
-        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+        profile = self._load_profile()
+        preferences = profile.get("preferences", {})
+        timezone_str = preferences.get("timezone", "Asia/Shanghai")
+        
+        try:
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            logger.error(f"Invalid timezone in profile: {timezone_str}")
+            return ""
+        
+        cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime('%Y-%m-%dT%H:%M:%S')
         
         entries = []
@@ -102,50 +155,118 @@ class DailyRoutines:
         return "\n".join(summary_parts)
     
     async def morning_routine(self) -> bool:
-        logger.info("Starting morning routine...")
+        logger.info("Starting morning routine (dual-track mode)...")
+        
+        profile = self._load_profile()
+        preferences = profile.get("preferences", {})
+        physical_baseline = profile.get("physical_baseline", {})
+        
+        timezone_str = preferences.get("timezone", "Asia/Shanghai")
+        try:
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        
+        now = datetime.datetime.now(tz)
+        weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        current_date = now.strftime("%Y-%m-%d")
+        current_weekday = weekday_names[now.weekday()]
+        date_info = f"当地时间：{current_date}，{current_weekday}"
+        
+        weekly_routine = physical_baseline.get("weekly_routine", {})
+        primary_goals = physical_baseline.get("primary_goals", "")
         
         latest_report = self._get_latest_report()
-        context = ""
+        recent_metrics = self._get_recent_metrics(3)
         
-        if latest_report:
-            context = f"<recent_report>\n{latest_report}\n</recent_report>"
-        else:
-            context = "暂无最近的报告数据。"
-        
-        system_prompt = """你是一个贴心的私人助理。现在是早上。请根据用户最近的知识库变动和训练计划，生成一份简短、充满活力的晨间问候。内容需包含：今日训练重点、昨夜可能关心的知识话题。请用友好的口吻输出，适合在 Telegram 上阅读。
-
-输出要求：
-1. 使用 Markdown 格式
-2. 控制在 500 字以内
-3. 语气轻松友好
-4. 如果有具体的待办事项，用列表形式展示"""
-        
-        user_prompt = f"请根据以下最近的报告内容生成晨间问候：\n\n{context}"
-        
+        message_a = ""
         try:
-            response = await self.client.chat.completions.create(
+            system_prompt_a = "你是一个贴心的私人助理。现在是早上。请根据用户最近的知识库报告生成晨间问候。用友好的口吻总结昨夜的知识沉淀或重要待办，语气轻松，控制在 300 字以内。"
+            
+            if latest_report:
+                user_prompt_a = f"请根据以下知识库报告生成晨间问候：\n\n<report>\n{latest_report}\n</report>"
+            else:
+                user_prompt_a = "暂无新的知识库报告，请生成一条轻松的晨间问候。"
+            
+            response_a = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": system_prompt_a},
+                    {"role": "user", "content": user_prompt_a}
                 ],
-                max_tokens=800,
+                max_tokens=500,
                 stream=False
             )
+            message_a = response_a.choices[0].message.content
+            logger.info(f"Generated knowledge brief: {message_a[:100]}...")
+        except Exception as e:
+            logger.error(f"Error generating knowledge brief: {e}")
+            message_a = "早安！知识简报生成失败，请稍后查看。"
+        
+        message_b = ""
+        try:
+            system_prompt_b = "你是一个专业的私人教练。请根据用户的长期训练目标、预设的每周规律、今天是星期几，以及用户过去 3 天的量化状态数据，生成今日的专属训练建议。要求：1. 简要评价昨日的训练和恢复状态；2. 给出今日明确的训练重点或休息建议；3. 控制在 300 字以内，专业且有活力。"
             
-            message = response.choices[0].message.content
-            logger.info(f"Generated morning message: {message[:100]}...")
+            routine_desc = weekly_routine.get("description", "未设置")
+            routine_pattern = weekly_routine.get("pattern", "未设置")
             
-            success = await self.telegram.send_message(message)
-            if success:
-                logger.info("Morning routine completed successfully")
+            metrics_text = ""
+            if recent_metrics:
+                metrics_lines = []
+                for m in recent_metrics:
+                    metrics_lines.append(json.dumps(m, ensure_ascii=False, indent=2))
+                metrics_text = "\n\n".join(metrics_lines)
             else:
-                logger.warning("Morning routine completed but message delivery failed")
+                metrics_text = "暂无近期身体状态数据。"
             
-            return success
+            user_prompt_b = f"""请根据以下信息生成今日训练建议：
+
+{date_info}
+
+【训练目标】
+{primary_goals if primary_goals else "未设置"}
+
+【每周规律】
+- 描述：{routine_desc}
+- 模式：{routine_pattern}
+
+【最近 3 天身体状态】
+{metrics_text}
+"""
+            
+            response_b = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt_b},
+                    {"role": "user", "content": user_prompt_b}
+                ],
+                max_tokens=500,
+                stream=False
+            )
+            message_b = response_b.choices[0].message.content
+            logger.info(f"Generated training plan: {message_b[:100]}...")
+        except Exception as e:
+            logger.error(f"Error generating training plan: {e}")
+            message_b = "今日训练建议生成失败，请稍后查看。"
+        
+        try:
+            success_a = await self.telegram.send_message(message_a)
+            if not success_a:
+                logger.error("Failed to send knowledge brief")
+                return False
+            
+            await asyncio.sleep(1)
+            
+            success_b = await self.telegram.send_message(message_b)
+            if not success_b:
+                logger.error("Failed to send training plan")
+                return False
+            
+            logger.info("Morning routine (dual-track) completed successfully")
+            return True
             
         except Exception as e:
-            logger.error(f"Error in morning routine: {e}")
+            logger.error(f"Error in morning routine message delivery: {e}")
             return False
     
     async def weekly_review(self) -> bool:
