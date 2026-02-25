@@ -214,3 +214,6 @@ notion-dump-history.jsonl
 logs/
 _reports/
 notion_output/
+
+# User private configuration
+config/profile.yaml

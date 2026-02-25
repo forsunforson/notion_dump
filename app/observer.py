@@ -6,46 +6,19 @@ import re
 import aiofiles
 from pathlib import Path
 from openai import AsyncOpenAI
+from services.prompt_manager import PromptManager
 
 class ContentObserver:
     def __init__(self):
         self.api_key = os.getenv("AI_API_KEY")
         self.base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
         self.model = os.getenv("AI_MODEL", "gpt-3.5-turbo")
-        self.prompt_template_path = Path("observer_prompt.md")
         
         if not self.api_key:
             print("Warning: AI_API_KEY not set. Observer functionalities might fail.")
             
         self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-
-    def _get_prompt_template(self):
-        default_template = """
-Plaintext
-文件名: {filename}
-内容:
-{content}
-    请简要分析（JSON格式返回）：
-    1. summary: 一句话总结核心变更。
-    2. action_items: 提取出的明确待办事项列表（没有则为空列表）。
-    3. tags: 建议的 1-3 个标签。
-"""
-        if self.prompt_template_path.exists():
-            try:
-                with open(self.prompt_template_path, "r", encoding="utf-8") as f:
-                    return f.read()
-            except Exception as e:
-                print(f"Error reading prompt template, using default: {e}")
-                return default_template
-        else:
-            # Create default template file if it doesn't exist
-            try:
-                with open(self.prompt_template_path, "w", encoding="utf-8") as f:
-                    f.write(default_template.strip())
-                print(f"Created default prompt template at {self.prompt_template_path}")
-            except Exception as e:
-                print(f"Error creating prompt template: {e}")
-            return default_template
+        self.prompt_manager = PromptManager()
 
     async def analyze_changes(self, file_paths: list):
         """
@@ -124,13 +97,11 @@ Plaintext
             
         filename = path.name
         
-        # Hydrate context
         content = await self._hydrate_context(content, path.parent)
         
         system_prompt = "你是知识库助手。<changed_document> 是用户刚刚修改的内容，<references> 是该文档引用的背景资料（仅供参考，不是本次修改的内容）。请基于这些信息进行总结。"
         
-        prompt_template = self._get_prompt_template()
-        user_prompt = prompt_template.format(filename=filename, content=content)
+        user_prompt = self.prompt_manager.build_prompt(str(file_path), content, filename)
         
         try:
             response = await self.client.chat.completions.create(

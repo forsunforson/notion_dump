@@ -166,13 +166,65 @@ For more details, check [deploy/README.md](deploy/README.md).
 *   `app/download_notion.py`: Core syncing logic for downloading Notion pages.
 *   `app/services/git_service.py`: Handles Git operations for the backup repository.
 *   `app/services/telegram_service.py`: Handles Telegram message sending.
+*   `app/services/prompt_manager.py`: Dynamic prompt loading and template management for AI analysis.
 *   `app/jobs/routines.py`: Contains morning routine and weekly review logic.
 *   `app/notion_to_md.py`: Core logic for converting Notion blocks to Markdown.
 *   `app/observer.py`: Handles AI observation of changed content.
 *   `app/utils.py`: Utility functions for mapping Notion properties and handling data formats.
+*   `config/`: User configuration directory containing profile and prompt templates.
+    *   `config/profile.yaml`: User profile for personalized AI analysis.
+    *   `config/templates/`: Prompt templates for different content types (diary, article).
+
+## Prompt Manager & Cognitive Engine
+
+The project includes a flexible prompt management system that enables dynamic AI analysis based on content type:
+
+### Features
+
+*   **Dynamic Template Loading**: Automatically selects appropriate prompt templates based on content type.
+*   **YAML Frontmatter Routing**: Uses `title: "Daily Entry"` in frontmatter to route diary content to specialized templates.
+*   **User Profile Integration**: Personalizes AI analysis with user profile data from `config/profile.yaml`.
+*   **Privacy-First Design**: User configuration is stored in `config/` and excluded from version control.
+*   **Automatic Backup**: User profile and templates are backed up to Google Drive via Rclone.
+
+### Template Routing Logic
+
+1.  **Diary Detection**: If the Markdown file has `title: "Daily Entry"` in YAML frontmatter, it uses `config/templates/diary.md`.
+2.  **Default**: All other files use `config/templates/article.md`.
+
+### User Profile Structure
+
+Edit `config/profile.yaml` to personalize AI analysis:
+
+```yaml
+name: "Your Name"
+physical_state:
+  energy_level: "normal"
+  health_status: "healthy"
+recent_focus:
+  primary_goals: ["Goal 1", "Goal 2"]
+  current_projects: ["Project A"]
+preferences:
+  communication_style: "concise"
+  detail_level: "medium"
+```
+
+### Custom Templates
+
+Create or modify templates in `config/templates/`:
+
+*   `diary.md`: Template for daily journal entries
+*   `article.md`: Template for general documents
+
+Templates support placeholders:
+*   `{profile_data}`: Formatted user profile
+*   `{filename}`: Name of the analyzed file
+*   `{content}`: Full file content
 
 ## Recent Updates
 
+*   **Prompt Manager & Cognitive Engine**: Dynamic prompt loading with YAML frontmatter-based routing for personalized AI analysis.
+*   **Privacy-First Config**: User profile and templates moved to `config/` directory, excluded from version control.
 *   **Telegram Notifications**: Added support for sending AI-generated messages to Telegram.
 *   **Task Routing**: New CLI with `--job` parameter for different task types.
 *   **Morning Routine**: AI-generated morning greetings based on recent changes.

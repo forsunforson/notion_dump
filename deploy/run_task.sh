@@ -19,7 +19,8 @@ LOG_FILE="$LOG_DIR/execution.log"
 
 # Rclone Configuration
 RCLONE_REMOTE="gdrive:notion-dump-backup"
-BACKUP_FILES=(".notion-dump-state.json" "notion-dump-history.jsonl" ".env")
+BACKUP_FILES=(".notion-dump-state.json" "notion-dump-history.jsonl" ".env" "config/profile.yaml")
+BACKUP_DIRS=("config/templates")
 
 # Parse --job parameter for logging
 JOB_TYPE="sync"
@@ -75,6 +76,16 @@ run_task() {
                 rclone copy "$file" "$RCLONE_REMOTE/state/" --quiet >> "$LOG_FILE" 2>&1
                 if [ $? -ne 0 ]; then
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Error] Backup failed for file: $file" >> "$LOG_FILE"
+                fi
+            fi
+        done
+
+        # Sync Config Directories
+        for dir in "${BACKUP_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+                rclone sync "$dir/" "$RCLONE_REMOTE/state/$dir/" --quiet >> "$LOG_FILE" 2>&1
+                if [ $? -ne 0 ]; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Error] Backup failed for directory: $dir" >> "$LOG_FILE"
                 fi
             fi
         done
