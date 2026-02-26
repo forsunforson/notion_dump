@@ -31,7 +31,7 @@ class DailyRoutines:
         weekly_routine = physical_baseline.get("weekly_routine", {})
         primary_goals = physical_baseline.get("primary_goals", "")
         
-        latest_report = self.fetcher.get_latest_report()
+        latest_report = self.fetcher.localize_text_timestamps(self.fetcher.get_latest_report())
         recent_metrics = self.fetcher.get_recent_metrics(3)
         recent_workout_logs = self.fetcher.get_recent_workout_logs(7)
         
@@ -123,8 +123,8 @@ class DailyRoutines:
     async def weekly_review(self) -> bool:
         logger.info("Starting weekly review...")
         
-        reports_content = self.fetcher.get_reports_from_last_n_days(7)
-        history_content = self.fetcher.get_history_from_last_n_days(7)
+        reports_content = self.fetcher.localize_text_timestamps(self.fetcher.get_reports_from_last_n_days(7))
+        history_content = self.fetcher.localize_text_timestamps(self.fetcher.get_history_from_last_n_days(7))
         
         context_parts = []
         if reports_content:

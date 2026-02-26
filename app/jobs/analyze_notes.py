@@ -7,12 +7,14 @@ import aiofiles
 from pathlib import Path
 from app.services.prompt_manager import PromptManager
 from app.services.llm_service import LLMService
+from app.utils.context_fetcher import ContextFetcher
 
 
 class AnalyzeNotesJob:
     def __init__(self):
         self.llm = LLMService()
         self.prompt_manager = PromptManager()
+        self.fetcher = ContextFetcher()
 
     async def analyze_changes(self, file_paths: list):
         """
@@ -86,9 +88,10 @@ class AnalyzeNotesJob:
         except Exception as e:
             print(f"Error reading file {path}: {e}")
             return None
-            
+        
         filename = path.name
         
+        raw_content = self.fetcher.localize_text_timestamps(raw_content)
         hydrated_content = await self._hydrate_context(raw_content, path.parent)
         
         is_diary = self.prompt_manager.is_daily_entry(raw_content)

@@ -293,3 +293,28 @@ class ContextFetcher:
                 summary_parts.append(f"  - {detail.get('title', 'Untitled')} ({detail.get('action', 'Unknown')})")
         
         return "\n".join(summary_parts)
+    
+    def localize_text_timestamps(self, text: str) -> str:
+        profile = self.get_profile()
+        preferences = profile.get("preferences", {})
+        timezone_str = preferences.get("timezone", "Asia/Shanghai")
+        
+        try:
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        
+        pattern = r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'
+        
+        def repl(match):
+            try:
+                timestamp_str = match.group(0)
+                dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                local_dt = dt.astimezone(tz)
+                return local_dt.strftime("%Y-%m-%d %H:%M:%S") + " (当地时间)"
+            except Exception:
+                return match.group(0)
+        
+        return re.sub(pattern, repl, text)
