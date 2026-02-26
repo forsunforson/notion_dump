@@ -62,7 +62,7 @@ class DailyRoutines:
 你的任务是为用户提供【今日专属训练计划】。
 
 【核心原则】
-1. 动态调整：仔细阅读用户过去 7 天的真实训练记录。即使用户的基准计划是「{routine_desc}」，你也必须根据他昨天/前天的实际情况（比如是否休息了、是否跳过了某练）来推断今天最合理的训练部位。
+1. 动态调整：仔细阅读用户过去 7 天的真实训练记录。即使用户的基准目标是「{routine_desc}」，基准计划是「{routine_pattern}」，你也必须根据他昨天/前天的实际情况（比如是否休息了、是否跳过了某练）来推断今天最合理的训练部位。
 2. 格式匹配：输出格式必须与用户的日常记录格式高度匹配，直接给出清晰的动作列表。
 
 【输出要求】
@@ -188,11 +188,11 @@ def test_get_recent_workout_logs():
         
         result = fetcher.get_recent_workout_logs(days=7)
         
-        print("\n" + "="*60)
-        print("【最近 7 天训练记录测试结果】")
-        print("="*60)
-        print(result)
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("【最近 7 天训练记录测试结果】")
+        logger.info("="*60)
+        logger.info(result)
+        logger.info("="*60)
         
     finally:
         os.chdir(original_cwd)
