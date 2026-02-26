@@ -8,10 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = "notion_output"
@@ -165,12 +161,23 @@ Examples:
         help="Force enable AI analysis even during full sync (only for sync job)"
     )
     parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Log level to use (default: INFO)"
+    )
+    parser.add_argument(
         "files",
         nargs="*",
         help="Files to analyze (only for analyze job). If not specified, analyzes all files in notion_output/"
     )
     
     args = parser.parse_args()
+    
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
     logger.info(f"Running job: {args.job}")
     

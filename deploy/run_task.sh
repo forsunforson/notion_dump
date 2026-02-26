@@ -32,6 +32,10 @@ while [[ $# -gt 0 ]]; do
             ARGS+=("$1" "$2")
             shift 2
             ;;
+        --log-level)
+            ARGS+=("$1" "$2")
+            shift 2
+            ;;
         *)
             ARGS+=("$1")
             shift

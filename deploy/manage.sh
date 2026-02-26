@@ -122,7 +122,7 @@ run_task_now() {
     echo ""
     echo "🚀 Starting $job_name..."
     echo "------------------------------------------"
-    "$RUN_TASK_SCRIPT" --job "$job_type"
+    "$RUN_TASK_SCRIPT" --job "$job_type" --log-level DEBUG
     echo "------------------------------------------"
     echo "✅ $job_name completed. Check output above or logs."
 }
