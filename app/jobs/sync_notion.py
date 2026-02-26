@@ -148,6 +148,11 @@ class SyncNotionJob:
         
         metadata = await self.get_page_metadata(page_id, page_obj=page_obj)
         title = metadata["title"]
+        
+        if not title or title.strip().lower() in ["unknown", "untitled"]:
+            logger.info(f"Skipping invalid page {page_id} with title: '{title}'")
+            return None
+        
         self.converter.page_titles[page_id] = title
         obj_type = metadata.get("type", "page")
         page_obj = metadata.get("page_obj")
