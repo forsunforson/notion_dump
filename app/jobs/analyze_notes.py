@@ -195,13 +195,14 @@ class AnalyzeNotesJob:
         except Exception:
             tz = ZoneInfo("Asia/Shanghai")
         
-        now = datetime.datetime.now(tz)
-        today_str = now.strftime("%Y-%m-%d")
+        now_local = datetime.datetime.now(tz)
+        today_str = now_local.strftime("%Y-%m-%d")
         report_file = reports_dir / f"report_{today_str}.md"
         
-        timestamp = now.strftime('%H:%M:%S')
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        timestamp_utc = now_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
         markdown_content = f"\n## 🤖 AI 后台分析报告\n"
-        markdown_content += f"> **系统同步时间**: {timestamp} (当地时间)。请注意，此时间仅为后台脚本运行时间，不代表用户的实际作息或笔记创建时间。\n\n"
+        markdown_content += f"> **系统同步时间**: {timestamp_utc} (UTC)。请注意，此时间仅为后台脚本运行时间，不代表用户的实际作息或笔记创建时间。\n\n"
         
         for item in results:
             filename = item.get("filename", "Unknown")

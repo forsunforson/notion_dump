@@ -91,7 +91,16 @@ class ContextFetcher:
         if not self.reports_dir.exists():
             return ""
         
-        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=days)
+        profile = self.get_profile()
+        preferences = profile.get("preferences", {})
+        timezone_str = preferences.get("timezone", "Asia/Shanghai")
+        
+        try:
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        
+        cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
         
         report_files = sorted(self.reports_dir.glob("report_*.md"), reverse=True)
@@ -132,15 +141,14 @@ class ContextFetcher:
             for md_file in md_files[:50]:
                 try:
                     with open(md_file, "r", encoding="utf-8") as f:
-                        content = f.read(5000)
-                    content = self.localize_text_timestamps(content)
+                        raw_content = f.read(5000)
                 except Exception as e:
                     logger.error(f"Error reading file {md_file}: {e}")
                     continue
                 
                 date_str = None
                 
-                yaml_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+                yaml_match = re.search(r'^---\s*\n(.*?)\n---', raw_content, re.DOTALL)
                 if yaml_match:
                     yaml_content = yaml_match.group(1)
                     created_match = re.search(r'created_time:\s*["\']?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z?["\']?', yaml_content)
@@ -157,16 +165,16 @@ class ContextFetcher:
                 if not date_str or date_str < cutoff_str:
                     continue
                 
-                workout_match = re.search(r'###\s*🏋️\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', content, re.DOTALL | re.IGNORECASE)
+                workout_match = re.search(r'###\s*🏋️\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', raw_content, re.DOTALL | re.IGNORECASE)
                 
                 if not workout_match:
-                    workout_match = re.search(r'###\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', content, re.DOTALL | re.IGNORECASE)
+                    workout_match = re.search(r'###\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', raw_content, re.DOTALL | re.IGNORECASE)
                 
                 if not workout_match:
-                    workout_match = re.search(r'##\s*🏋️\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', content, re.DOTALL | re.IGNORECASE)
+                    workout_match = re.search(r'##\s*🏋️\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', raw_content, re.DOTALL | re.IGNORECASE)
                 
                 if not workout_match:
-                    workout_match = re.search(r'##\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', content, re.DOTALL | re.IGNORECASE)
+                    workout_match = re.search(r'##\s*Workout\s*\n(.*?)(?=\n###|\n##|\n---|\Z)', raw_content, re.DOTALL | re.IGNORECASE)
                 
                 if workout_match:
                     workout_content = workout_match.group(1).strip()
