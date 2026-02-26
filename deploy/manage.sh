@@ -79,14 +79,112 @@ show_main_menu() {
     echo "   Notion Dump Manager (Deploy Tool)"
     echo "=========================================="
     echo "1. 🚀 Run Task Now"
-    echo "2. 📅 Schedule Tasks (Crontab)"
-    echo "3. 📋 View Current Schedule"
-    echo "4. 🗑️  Remove Schedule"
-    echo "5. 👀 View Logs (tail -f)"
-    echo "6. 🌍 Settings (Timezone: $USER_TZ)"
-    echo "7. ❌ Exit"
+    echo "2. 🤖 Manage Bot Service"
+    echo "3. 📅 Schedule Tasks (Crontab)"
+    echo "4. 📋 View Current Schedule"
+    echo "5. 🗑️  Remove Schedule"
+    echo "6. 👀 View Logs (tail -f)"
+    echo "7. 🌍 Settings (Timezone: $USER_TZ)"
+    echo "8. ❌ Exit"
     echo "=========================================="
-    echo -n "Select an option [1-7]: "
+    echo -n "Select an option [1-8]: "
+}
+
+show_bot_menu() {
+    echo ""
+    echo "=========================================="
+    echo "   🤖 Manage Bot Service"
+    echo "=========================================="
+    echo "1. ▶️  Start Bot (Background)"
+    echo "2. ⏹️  Stop Bot"
+    echo "3. 🔄 Restart Bot"
+    echo "4. ❓ Check Status"
+    echo "5. 👀 View Bot Logs"
+    echo "6. ◀️  Back to Main Menu"
+    echo "=========================================="
+    echo -n "Select an option [1-6]: "
+}
+
+manage_bot_service() {
+    local PID_FILE="$PROJECT_ROOT/logs/bot.pid"
+    local BOT_LOG="$PROJECT_ROOT/logs/bot.log"
+    
+    while true; do
+        show_bot_menu
+        read choice
+        
+        case $choice in
+            1) # Start
+                if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
+                    echo "⚠️  Bot is already running (PID: $(cat "$PID_FILE"))"
+                else
+                    echo "🚀 Starting Telegram Bot in background..."
+                    nohup "$RUN_TASK_SCRIPT" --job bot > "$BOT_LOG" 2>&1 &
+                    echo $! > "$PID_FILE"
+                    echo "✅ Bot started! PID: $(cat "$PID_FILE")"
+                    echo "   Logs: $BOT_LOG"
+                fi
+                ;;
+            2) # Stop
+                if [ -f "$PID_FILE" ]; then
+                    local pid=$(cat "$PID_FILE")
+                    if kill -0 "$pid" 2>/dev/null; then
+                        echo "🛑 Stopping Bot (PID: $pid)..."
+                        kill "$pid"
+                        rm "$PID_FILE"
+                        echo "✅ Bot stopped."
+                    else
+                        echo "⚠️  Bot process $pid not found. Cleaning up pid file."
+                        rm "$PID_FILE"
+                    fi
+                else
+                    echo "ℹ️  Bot is not running."
+                fi
+                ;;
+            3) # Restart
+                echo "🔄 Restarting Bot..."
+                # Stop first
+                if [ -f "$PID_FILE" ]; then
+                    local pid=$(cat "$PID_FILE")
+                    kill "$pid" 2>/dev/null
+                    rm "$PID_FILE"
+                    sleep 1
+                fi
+                # Start
+                nohup "$RUN_TASK_SCRIPT" --job bot > "$BOT_LOG" 2>&1 &
+                echo $! > "$PID_FILE"
+                echo "✅ Bot restarted! PID: $(cat "$PID_FILE")"
+                ;;
+            4) # Status
+                if [ -f "$PID_FILE" ]; then
+                    local pid=$(cat "$PID_FILE")
+                    if kill -0 "$pid" 2>/dev/null; then
+                        echo "✅ Bot is RUNNING (PID: $pid)"
+                        # Show last few log lines
+                        echo "   Last log entries:"
+                        tail -n 3 "$BOT_LOG" | sed 's/^/   /'
+                    else
+                        echo "⚠️  PID file exists but process $pid not found."
+                    fi
+                else
+                    echo "⚪ Bot is STOPPED"
+                fi
+                ;;
+            5) # Logs
+                echo ""
+                echo "👀 Showing Bot logs (Press Ctrl+C to stop)..."
+                echo "File: $BOT_LOG"
+                echo "------------------------------------------"
+                if [ -f "$BOT_LOG" ]; then
+                    tail -f "$BOT_LOG"
+                else
+                    echo "⚠️  Log file not found."
+                fi
+                ;;
+            6) return ;;
+            *) echo "❌ Invalid option." ;;
+        esac
+    done
 }
 
 show_run_menu() {
@@ -97,9 +195,10 @@ show_run_menu() {
     echo "1. 🔄 Sync (Data sync and backup)"
     echo "2. 🌅 Morning Routine (Morning greeting)"
     echo "3. 📊 Weekly Review (Weekly summary)"
-    echo "4. ◀️  Back to Main Menu"
+    echo "4. 🤖 Telegram Bot (Run in foreground)"
+    echo "5. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select a task to run [1-4]: "
+    echo -n "Select a task to run [1-5]: "
 }
 
 show_schedule_menu() {
@@ -135,7 +234,8 @@ run_now_submenu() {
             1) run_task_now "sync" "Sync Task" ;;
             2) run_task_now "morning" "Morning Routine" ;;
             3) run_task_now "weekly" "Weekly Review" ;;
-            4) return ;;
+            4) run_task_now "bot" "Telegram Bot" ;;
+            5) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
@@ -386,12 +486,13 @@ while true; do
     read choice
     case $choice in
         1) run_now_submenu ;;
-        2) schedule_submenu ;;
-        3) view_schedule ;;
-        4) unschedule_task ;;
-        5) view_logs ;;
-        6) select_timezone ;;
-        7) echo "Bye! 👋"; exit 0 ;;
+        2) manage_bot_service ;;
+        3) schedule_submenu ;;
+        4) view_schedule ;;
+        5) unschedule_task ;;
+        6) view_logs ;;
+        7) select_timezone ;;
+        8) echo "Bye! 👋"; exit 0 ;;
         *) echo "❌ Invalid option. Please try again." ;;
     esac
 done

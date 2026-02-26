@@ -136,14 +136,15 @@ Examples:
   python main.py --job weekly                  # Run weekly review
   python main.py --job analyze                 # Analyze all files in notion_output/
   python main.py --job analyze file1.md file2.md  # Analyze specific files
+  python main.py --job bot                     # Start Telegram Bot
         """
     )
     
     parser.add_argument(
         "--job",
-        choices=["sync", "morning", "weekly", "analyze"],
+        choices=["sync", "morning", "weekly", "analyze", "bot"],
         default="sync",
-        help="Job type to run: sync (default), morning, weekly, or analyze"
+        help="Job type to run: sync (default), morning, weekly, analyze, or bot"
     )
     parser.add_argument(
         "--force", "--full",
@@ -193,6 +194,11 @@ Examples:
         asyncio.run(run_weekly_job())
     elif args.job == "analyze":
         asyncio.run(run_analyze_job(args.files))
+    elif args.job == "bot":
+        from app.jobs.bot_runner import TelegramBotRunner
+        runner = TelegramBotRunner()
+        logger.info("Starting Telegram Bot Polling...")
+        runner.start_polling()
     else:
         logger.error(f"Unknown job type: {args.job}")
         sys.exit(1)

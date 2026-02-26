@@ -20,3 +20,4 @@ aiofiles
 
 # Async HTTP client
 aiohttp
+python-telegram-bot
