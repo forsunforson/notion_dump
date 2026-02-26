@@ -45,10 +45,15 @@ done
 
 # Define the task execution logic
 run_task() {
-    # 1. 自动更新代码库 (忽略本地任何临时代码修改，强制对齐线上)
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] 拉取最新项目代码..." >> "$LOG_FILE"
-    git fetch origin main >> "$LOG_FILE" 2>&1
-    git reset --hard origin/main >> "$LOG_FILE" 2>&1
+    # 1. 自动更新代码库 (仅当位于 main 分支且未禁用更新时)
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$CURRENT_BRANCH" == "main" ] && [ "$SKIP_UPDATE" != "true" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] 拉取最新项目代码..." >> "$LOG_FILE"
+        git fetch origin main >> "$LOG_FILE" 2>&1
+        git reset --hard origin/main >> "$LOG_FILE" 2>&1
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] 跳过代码更新 (当前分支: $CURRENT_BRANCH)" >> "$LOG_FILE"
+    fi
 
     # 2. 检查并激活虚拟环境
     VENV_DIR="$PROJECT_ROOT/venv"
@@ -123,7 +128,11 @@ run_task() {
 }
 
 # Use PID file for locking (works on both Linux and macOS without flock)
-LOCK_FILE="$LOG_DIR/notion_dump.pid"
+if [ "$JOB_TYPE" == "bot" ]; then
+    LOCK_FILE="$LOG_DIR/bot_runner.pid"
+else
+    LOCK_FILE="$LOG_DIR/notion_dump.pid"
+fi
 
 if [ -f "$LOCK_FILE" ]; then
     PID=$(cat "$LOCK_FILE")
