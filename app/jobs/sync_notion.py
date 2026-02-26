@@ -88,23 +88,46 @@ class SyncNotionJob:
     
     async def get_page_metadata(self, page_id: str, page_obj: Optional[dict] = None) -> dict:
         """Retrieve title and metadata of a Notion page or database."""
-        if page_obj:
-            if page_obj["object"] == "page":
-                return await self.notion_api.get_page_meta(page_id)
-            elif page_obj["object"] == "database":
-                db = page_obj
-                title_objs = db.get("title", [])
-                title = "".join([t["plain_text"] for t in title_objs]) or "Untitled Database"
-                return {
-                    "title": title,
-                    "created_time": db.get("created_time"),
-                    "last_edited_time": db.get("last_edited_time"),
-                    "properties": {},
-                    "type": "database",
-                    "page_obj": db
-                }
-        
-        return await self.notion_api.get_page_meta(page_id)
+        # 如果没有传入 page_obj，才去发起网络请求拉取
+        if not page_obj:
+            page_obj = await self.notion_api.get_page_meta(page_id)
+            
+        if not page_obj:
+            return {"title": "Unknown", "type": "unknown", "page_obj": None}
+            
+        if page_obj.get("object") == "page":
+            props = page_obj.get("properties", {})
+            title = "Untitled"
+            # 遍历查找 type 为 title 的属性
+            for prop in props.values():
+                if prop.get("type") == "title":
+                    title_array = prop.get("title", [])
+                    title = "".join([t.get("plain_text", "") for t in title_array]) or "Untitled"
+                    break
+                    
+            return {
+                "title": title,
+                "created_time": page_obj.get("created_time"),
+                "last_edited_time": page_obj.get("last_edited_time"),
+                "properties": props,
+                "type": "page",
+                "page_obj": page_obj  # 核心修复：必须把原始对象包裹返回
+            }
+            
+        elif page_obj.get("object") == "database":
+            db = page_obj
+            title_objs = db.get("title", [])
+            title = "".join([t.get("plain_text", "") for t in title_objs]) or "Untitled Database"
+            return {
+                "title": title,
+                "created_time": db.get("created_time"),
+                "last_edited_time": db.get("last_edited_time"),
+                "properties": {},
+                "type": "database",
+                "page_obj": db
+            }
+            
+        return {"title": "Unknown", "type": "unknown", "page_obj": page_obj}
     
     async def download_page(
         self,
