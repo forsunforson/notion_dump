@@ -1,5 +1,5 @@
 import unittest
-from utils import NotionMapper
+from app.utils.notion_converter import NotionMapper
 
 class TestNotionMapper(unittest.TestCase):
     def test_special_char_title(self):
