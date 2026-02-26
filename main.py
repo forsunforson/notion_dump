@@ -18,14 +18,14 @@ OUTPUT_DIR = "notion_output"
 
 
 async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_analyze: bool = False):
-    from app.download_notion import sync_incremental, load_state
+    from app.jobs.sync_notion import SyncNotionJob
     from app.services.git_service import GitService
     from app.jobs.analyze_notes import AnalyzeNotesJob
 
     logger.info("Starting sync job...")
     
     should_run_analyze = True
-    last_sync_time = load_state()
+    last_sync_time = SyncNotionJob.load_state()
     is_full_sync = force or (last_sync_time is None)
     
     if skip_analyze:
@@ -45,7 +45,8 @@ async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_ana
         logger.warning(f"Git service initialization failed: {e}")
         git_service = None
 
-    changed_files = sync_incremental(force=force)
+    job = SyncNotionJob()
+    changed_files = await job.sync_incremental(force=force)
     
     if git_service:
         try:
@@ -54,9 +55,9 @@ async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_ana
             logger.warning(f"Git sync failed: {e}")
 
     if changed_files and should_run_analyze:
-        job = AnalyzeNotesJob()
+        analyze_job = AnalyzeNotesJob()
         try:
-            await job.analyze_changes(changed_files)
+            await analyze_job.analyze_changes([str(f) for f in changed_files])
         except Exception as e:
             logger.error(f"Error running analyze job: {e}")
     
