@@ -46,6 +46,7 @@ class TelegramBotRunner:
         try:
             # Fetch user profile for context
             profile = self.fetcher.get_profile()
+            user_name = profile.get("name", user_name)
             primary_goals = profile.get("goals", "improve productivity and health")
             
             # Construct system prompt
