@@ -37,7 +37,7 @@ class DailyRoutines:
         
         message_a = ""
         try:
-            system_prompt_a = f"你是一个贴心的私人助理。用户的名字是 {user_name}。现在是早上。请根据用户最近的知识库报告生成晨间问候。用友好的口吻总结昨夜的知识沉淀或重要待办，语气轻松，控制在 300 字以内。打招呼时直接使用「{user_name}」这个名字，绝对不要输出 [User Name] 这种占位符。"
+            system_prompt_a = f"你是一个贴心的私人助理。用户的名字是 {user_name}。现在是早上。请根据用户最近的知识库报告生成晨间问候。用友好的口吻总结昨夜的知识沉淀或重要待办，语气轻松，控制在 300 字以内。打招呼时直接使用「{user_name}」这个名字。注意：报告中的'系统同步时间'是后台程序运行的时间，与用户的实际作息无关。重点关注日记的内容本身。"
             
             if latest_report:
                 user_prompt_a = f"请根据以下知识库报告生成晨间问候：\n\n<report>\n{latest_report}\n</report>"

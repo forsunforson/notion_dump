@@ -5,6 +5,8 @@ import datetime
 import re
 import aiofiles
 from pathlib import Path
+from zoneinfo import ZoneInfo
+import yaml
 from app.services.prompt_manager import PromptManager
 from app.services.llm_service import LLMService
 from app.utils.context_fetcher import ContextFetcher
@@ -107,6 +109,7 @@ class AnalyzeNotesJob:
             
         return {
             "filename": filename,
+            "file_path": file_path,
             "analysis": analysis_dict
         }
 
@@ -145,19 +148,64 @@ class AnalyzeNotesJob:
         md_lines.append("\n")
         return "".join(md_lines)
 
+    def _get_document_time(self, file_path: Path, tz: ZoneInfo) -> str | None:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read(5000)
+            
+            yaml_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+            if yaml_match:
+                yaml_content = yaml_match.group(1)
+                created_match = re.search(r'created_time:\s*["\']?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z?["\']?', yaml_content)
+                if created_match:
+                    utc_time_str = created_match.group(1)
+                    try:
+                        utc_time = datetime.datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%S")
+                        utc_time = utc_time.replace(tzinfo=datetime.timezone.utc)
+                        local_time = utc_time.astimezone(tz)
+                        return local_time.strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        pass
+                
+                updated_match = re.search(r'last_edited_time:\s*["\']?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z?["\']?', yaml_content)
+                if updated_match:
+                    utc_time_str = updated_match.group(1)
+                    try:
+                        utc_time = datetime.datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%S")
+                        utc_time = utc_time.replace(tzinfo=datetime.timezone.utc)
+                        local_time = utc_time.astimezone(tz)
+                        return local_time.strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+        return None
+    
     def _generate_report(self, results):
         project_root = Path(os.getcwd())
         reports_dir = project_root / "_reports"
         reports_dir.mkdir(exist_ok=True)
         
-        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        profile = self.fetcher.get_profile()
+        preferences = profile.get("preferences", {})
+        timezone_str = preferences.get("timezone", "Asia/Shanghai")
+        
+        try:
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        
+        now = datetime.datetime.now(tz)
+        today_str = now.strftime("%Y-%m-%d")
         report_file = reports_dir / f"report_{today_str}.md"
         
-        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-        markdown_content = f"\n## Analysis Report - {timestamp}\n\n"
+        timestamp = now.strftime('%H:%M:%S')
+        markdown_content = f"\n## 🤖 AI 后台分析报告\n"
+        markdown_content += f"> **系统同步时间**: {timestamp} (当地时间)。请注意，此时间仅为后台脚本运行时间，不代表用户的实际作息或笔记创建时间。\n\n"
         
         for item in results:
             filename = item.get("filename", "Unknown")
+            file_path = item.get("file_path")
             analysis = item.get("analysis", {})
             
             if not isinstance(analysis, dict):
@@ -170,7 +218,13 @@ class AnalyzeNotesJob:
             tags = analysis.get("tags", [])
             insights = analysis.get("insights")
             
-            markdown_content += f"### {filename}\n"
+            markdown_content += f"### 📄 {filename}\n"
+            
+            if file_path:
+                doc_time = self._get_document_time(Path(file_path), tz)
+                if doc_time:
+                    markdown_content += f"*(文档记录时间: {doc_time})*\n"
+            
             markdown_content += f"**Summary**: {summary}\n\n"
             
             if action_items and isinstance(action_items, list):
