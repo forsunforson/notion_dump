@@ -81,7 +81,8 @@ class ContextFetcher:
         
         try:
             with open(report_files[0], "r", encoding="utf-8") as f:
-                return f.read(4000)
+                content = f.read(4000)
+                return self.localize_text_timestamps(content)
         except Exception as e:
             logger.error(f"Error reading report {report_files[0]}: {e}")
             return ""
@@ -102,6 +103,7 @@ class ContextFetcher:
                 try:
                     with open(report_file, "r", encoding="utf-8") as f:
                         content = f.read(2000)
+                        content = self.localize_text_timestamps(content)
                         valid_reports.append(f"=== {date_str} ===\n{content}")
                 except Exception as e:
                     logger.error(f"Error reading report {report_file}: {e}")
@@ -131,6 +133,7 @@ class ContextFetcher:
                 try:
                     with open(md_file, "r", encoding="utf-8") as f:
                         content = f.read(5000)
+                    content = self.localize_text_timestamps(content)
                 except Exception as e:
                     logger.error(f"Error reading file {md_file}: {e}")
                     continue
