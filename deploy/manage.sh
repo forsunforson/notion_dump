@@ -95,93 +95,78 @@ show_bot_menu() {
     echo "=========================================="
     echo "   🤖 Manage Bot Service"
     echo "=========================================="
-    echo "1. ▶️  Start Bot (Background)"
-    echo "2. ⏹️  Stop Bot"
-    echo "3. 🔄 Restart Bot"
-    echo "4. ❓ Check Status"
-    echo "5. 👀 View Bot Logs"
-    echo "6. ◀️  Back to Main Menu"
+    echo "1. 🛠️  Install Bot Service (Systemd)"
+    echo "2. 🔄 Restart Bot"
+    echo "3. ❓ Check Status"
+    echo "4. 👀 View Bot Logs"
+    echo "5. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select an option [1-6]: "
+    echo -n "Select an option [1-5]: "
 }
 
 manage_bot_service() {
-    local PID_FILE="$PROJECT_ROOT/logs/bot.pid"
-    local BOT_LOG="$PROJECT_ROOT/logs/bot.log"
-    
     while true; do
         show_bot_menu
         read choice
         
         case $choice in
-            1) # Start
-                if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
-                    echo "⚠️  Bot is already running (PID: $(cat "$PID_FILE"))"
-                else
-                    echo "🚀 Starting Telegram Bot in background..."
-                    nohup "$RUN_TASK_SCRIPT" --job bot > "$BOT_LOG" 2>&1 &
-                    echo $! > "$PID_FILE"
-                    echo "✅ Bot started! PID: $(cat "$PID_FILE")"
-                    echo "   Logs: $BOT_LOG"
-                fi
+            1) # Install
+                echo "⚙️  开始自动配置 Telegram Bot 系统守护进程..." 
+                
+                # 自动获取当前绝对路径和当前用户 
+                CURRENT_USER=$(whoami) 
+                SERVICE_FILE="/etc/systemd/system/notion-bot.service" 
+    
+                echo "👤 运行用户: $CURRENT_USER" 
+                echo "📂 项目路径: $PROJECT_ROOT" 
+    
+                # 使用 sudo 生成配置文件并写入系统目录 
+                sudo bash -c "cat > $SERVICE_FILE" <<EOF 
+[Unit] 
+Description=Notion Dump Telegram Bot Agent 
+After=network.target 
+
+[Service] 
+Type=simple 
+User=$CURRENT_USER 
+WorkingDirectory=$PROJECT_ROOT 
+ExecStart=$PROJECT_ROOT/venv/bin/python main.py --job bot 
+Restart=always 
+RestartSec=10 
+Environment="PATH=$PROJECT_ROOT/venv/bin" 
+
+[Install] 
+WantedBy=multi-user.target 
+EOF 
+    
+                echo "✅ 配置文件已生成: $SERVICE_FILE" 
+                
+                # 重新加载 Systemd，设置开机自启并立刻启动 
+                sudo systemctl daemon-reload 
+                sudo systemctl enable notion-bot 
+                sudo systemctl restart notion-bot 
+                
+                echo "🚀 Bot 守护进程已启动并设置为开机自启！" 
+                echo "🔍 你可以使用 'sudo systemctl status notion-bot' 查看运行状态" 
                 ;;
-            2) # Stop
-                if [ -f "$PID_FILE" ]; then
-                    local pid=$(cat "$PID_FILE")
-                    if kill -0 "$pid" 2>/dev/null; then
-                        echo "🛑 Stopping Bot (PID: $pid)..."
-                        kill "$pid"
-                        rm "$PID_FILE"
-                        echo "✅ Bot stopped."
-                    else
-                        echo "⚠️  Bot process $pid not found. Cleaning up pid file."
-                        rm "$PID_FILE"
-                    fi
-                else
-                    echo "ℹ️  Bot is not running."
-                fi
+            2) # Restart
+                echo "🔄 Restarting Bot Service..."
+                sudo systemctl restart notion-bot
+                sudo systemctl status notion-bot --no-pager
+                echo "✅ Bot restarted."
                 ;;
-            3) # Restart
-                echo "🔄 Restarting Bot..."
-                # Stop first
-                if [ -f "$PID_FILE" ]; then
-                    local pid=$(cat "$PID_FILE")
-                    kill "$pid" 2>/dev/null
-                    rm "$PID_FILE"
-                    sleep 1
-                fi
-                # Start
-                nohup "$RUN_TASK_SCRIPT" --job bot > "$BOT_LOG" 2>&1 &
-                echo $! > "$PID_FILE"
-                echo "✅ Bot restarted! PID: $(cat "$PID_FILE")"
+            3) # Status
+                echo "❓ Checking Bot Status..."
+                sudo systemctl status notion-bot --no-pager
                 ;;
-            4) # Status
-                if [ -f "$PID_FILE" ]; then
-                    local pid=$(cat "$PID_FILE")
-                    if kill -0 "$pid" 2>/dev/null; then
-                        echo "✅ Bot is RUNNING (PID: $pid)"
-                        # Show last few log lines
-                        echo "   Last log entries:"
-                        tail -n 3 "$BOT_LOG" | sed 's/^/   /'
-                    else
-                        echo "⚠️  PID file exists but process $pid not found."
-                    fi
-                else
-                    echo "⚪ Bot is STOPPED"
-                fi
-                ;;
-            5) # Logs
+            4) # Logs
                 echo ""
                 echo "👀 Showing Bot logs (Press Ctrl+C to stop)..."
-                echo "File: $BOT_LOG"
+                echo "Command: journalctl -u notion-bot -f"
                 echo "------------------------------------------"
-                if [ -f "$BOT_LOG" ]; then
-                    tail -f "$BOT_LOG"
-                else
-                    echo "⚠️  Log file not found."
-                fi
+                sudo journalctl -u notion-bot -f
                 ;;
-            6) return ;;
+            5) return ;;
             *) echo "❌ Invalid option." ;;
         esac
     done
