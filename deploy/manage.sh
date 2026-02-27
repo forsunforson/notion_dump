@@ -137,7 +137,7 @@ Environment="PATH=$PROJECT_ROOT/venv/bin"
 
 [Install] 
 WantedBy=multi-user.target 
-EOF 
+EOF
     
                 echo "✅ 配置文件已生成: $SERVICE_FILE" 
                 
