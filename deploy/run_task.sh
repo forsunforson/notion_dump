@@ -67,7 +67,7 @@ run_task() {
 
     # 3. 执行核心程序
     # Support --job parameter passthrough to main.py
-    exec python main.py "${ARGS[@]}" >> "$LOG_FILE" 2>&1
+    python main.py "${ARGS[@]}" >> "$LOG_FILE" 2>&1
     EXIT_CODE=$?
 
     # --- Rclone Backup Step ---
