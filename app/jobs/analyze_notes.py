@@ -92,6 +92,7 @@ class AnalyzeNotesJob:
             return None
         
         filename = path.name
+        date_localized = self.fetcher.extract_date_from_yaml(raw_content)
         
         raw_content = self.fetcher.localize_text_timestamps(raw_content)
         hydrated_content = await self._hydrate_context(raw_content, path.parent)
@@ -110,10 +111,11 @@ class AnalyzeNotesJob:
         return {
             "filename": filename,
             "file_path": file_path,
+            "date_localized": date_localized,
             "analysis": analysis_dict
         }
-
-    def _process_daily_metrics(self, analysis: dict, project_root: Path, filename: str = None):
+    
+    def _process_daily_metrics(self, analysis: dict, project_root: Path, filename: str = None, date_localized: str = None):
         metrics = analysis.get("daily_metrics")
         if not metrics or not isinstance(metrics, dict):
             return
@@ -123,6 +125,9 @@ class AnalyzeNotesJob:
         )
         if not has_actual_data:
             return
+        
+        if date_localized:
+            metrics["date"] = date_localized
         
         source = filename if filename else metrics.get("source")
         timestamp_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -234,12 +239,13 @@ class AnalyzeNotesJob:
         for item in results:
             filename = item.get("filename", "Unknown")
             file_path = item.get("file_path")
+            date_localized = item.get("date_localized")
             analysis = item.get("analysis", {})
             
             if not isinstance(analysis, dict):
                 analysis = {}
             
-            self._process_daily_metrics(analysis, project_root, filename)
+            self._process_daily_metrics(analysis, project_root, filename, date_localized)
             
             summary = analysis.get("summary", "No summary provided.")
             action_items = analysis.get("action_items", [])

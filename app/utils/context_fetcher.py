@@ -45,6 +45,34 @@ class ContextFetcher:
             "current_weekday": weekday_names[now.weekday()]
         }
     
+    def extract_date_from_yaml(self, content: str) -> str | None:
+        try:
+            profile = self.get_profile()
+            preferences = profile.get("preferences", {})
+            timezone_str = preferences.get("timezone", "Asia/Shanghai")
+            tz = ZoneInfo(timezone_str)
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        
+        yaml_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+        if not yaml_match:
+            return None
+        
+        yaml_content = yaml_match.group(1)
+        created_match = re.search(r'created_time:\s*["\']?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z?["\']?', yaml_content)
+        
+        if not created_match:
+            return None
+        
+        utc_time_str = created_match.group(1)
+        try:
+            utc_time = datetime.datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%S")
+            utc_time = utc_time.replace(tzinfo=datetime.timezone.utc)
+            local_time = utc_time.astimezone(tz)
+            return local_time.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    
     def get_recent_metrics(self, count: int = 3) -> list:
         if not self.metrics_file.exists():
             logger.warning(f"Metrics file not found: {self.metrics_file}")
