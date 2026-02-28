@@ -113,7 +113,7 @@ class AnalyzeNotesJob:
             "analysis": analysis_dict
         }
 
-    def _process_daily_metrics(self, analysis: dict, project_root: Path):
+    def _process_daily_metrics(self, analysis: dict, project_root: Path, filename: str = None):
         metrics = analysis.get("daily_metrics")
         if not metrics or not isinstance(metrics, dict):
             return
@@ -124,12 +124,39 @@ class AnalyzeNotesJob:
         if not has_actual_data:
             return
         
+        source = filename if filename else metrics.get("source")
+        timestamp_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        metrics["source"] = source
+        metrics["timestamp"] = timestamp_utc
+        
         metrics_path = project_root / "notion_output" / "metrics.jsonl"
         try:
             metrics_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metrics_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
-            print(f"Metrics appended to: {metrics_path}")
+            
+            metrics_map = {}
+            
+            if metrics_path.exists():
+                with open(metrics_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            item = json.loads(line)
+                            key = item.get("source") or item.get("date")
+                            if key:
+                                metrics_map[key] = item
+                        except json.JSONDecodeError:
+                            continue
+            
+            key = metrics.get("source") or metrics.get("date")
+            metrics_map[key] = metrics
+            
+            with open(metrics_path, 'w', encoding='utf-8') as f:
+                for item in metrics_map.values():
+                    f.write(json.dumps(item, ensure_ascii=False) + '\n')
+                    
+            print(f"Metrics saved to: {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics: {e}")
 
@@ -212,7 +239,7 @@ class AnalyzeNotesJob:
             if not isinstance(analysis, dict):
                 analysis = {}
             
-            self._process_daily_metrics(analysis, project_root)
+            self._process_daily_metrics(analysis, project_root, filename)
             
             summary = analysis.get("summary", "No summary provided.")
             action_items = analysis.get("action_items", [])
