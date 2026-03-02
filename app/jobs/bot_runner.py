@@ -1,5 +1,7 @@
 import os
 import logging
+import datetime
+from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from app.services.llm_service import LLMService
@@ -50,9 +52,24 @@ class TelegramBotRunner:
             user_name = profile.get("name", user_name)
             primary_goals = profile.get("goals", "improve productivity and health")
             
+            # Get current time based on user's timezone preference
+            preferences = profile.get("preferences", {})
+            timezone_str = preferences.get("timezone", "Asia/Shanghai")
+            try:
+                tz = ZoneInfo(timezone_str)
+            except Exception:
+                tz = ZoneInfo("Asia/Shanghai")
+                
+            now_local = datetime.datetime.now(tz)
+            today_str = now_local.strftime("%Y-%m-%d")
+            time_str = now_local.strftime("%H:%M")
+
             # Construct system prompt
             system_prompt = (
-                f"你是一个全能的私人助理。用户的名字是 {user_name}，核心目标是 {primary_goals}。"
+                f"你是一个全能的私人助理。用户的名字是 {user_name}，核心目标是 {primary_goals}。\n"
+                f"今天是 {today_str} ({timezone_str} {time_str})。\n"
+                "你可以使用工具来记录用户的健康数据（如体重、睡眠、情绪等）。\n"
+                "当用户提供相关数据时，请务必调用工具进行记录。\n"
                 "请用简短、友好的风格回复用户的消息。"
             )
 
