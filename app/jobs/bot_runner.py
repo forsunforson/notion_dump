@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from app.services.llm_service import LLMService
 from app.utils.context_fetcher import ContextFetcher
+from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,10 @@ class TelegramBotRunner:
             )
 
             # Call LLM
-            reply_text = await self.llm.ask_text(system_prompt, user_text)
+            tools = [METRICS_SKILL_SCHEMA]
+            tool_map = {"upsert_daily_metric": upsert_daily_metric}
+            
+            reply_text = await self.llm.ask_with_tools(system_prompt, user_text, tools, tool_map)
 
             # Send reply
             if reply_text:

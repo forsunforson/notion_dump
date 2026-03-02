@@ -10,7 +10,7 @@
 3.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
 4.  **Interact (交互)**:
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，聚合 `profile.yaml`、近期 Metrics 和 Report，通过 Telegram 推送晨间问候与周报。
-    - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，提供个性化问答服务。
+    - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力，可执行本地函数（如记录体重、心情等），提供个性化问答服务。
 
 ## 2. 核心模块拓扑 (Module Topology)
 
@@ -22,8 +22,11 @@
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.notion-dump-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
 -   **`analyze_notes.py`**: AI 分析引擎。读取变更的 Markdown，使用 `PromptManager` 组装 Prompt，调用 LLM 提取 `metrics.jsonl` 并生成每日简报。
--   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文。
+-   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
 -   **`routines.py`**: 业务编排层。组合 `ContextFetcher` 和 `LLMService`，生成高度定制化的晨报（含训练建议）和周报。
+
+### 技能与工具库 (Skills & Tools - `app/skills/`)
+-   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑。
@@ -101,3 +104,4 @@ preferences:
 4.  **AI 交互 (AI Interaction)**:
     -   **Context Hydration**: 在分析单篇文档时，必须注入其引用的其他文档片段（Reference Hydration），以提供上下文。
     -   **Structured Output**: 核心分析任务必须强制要求 JSON 格式输出，以保证下游数据处理的稳定性。
+    -   **Action Boundaries (动作边界)**: Agent 仅允许通过 `app/skills/` 目录下的明确定义的函数执行副作用操作（如文件写入）。所有写操作必须具备幂等性（Idempotency），防止重复调用导致数据污染。
