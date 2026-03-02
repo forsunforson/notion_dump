@@ -20,8 +20,8 @@ class LLMService:
 
     async def ask_json(self, system_prompt: str, user_prompt: str) -> dict:
         logger.info(f"[LLM Request] Model: {self.model}")
-        logger.debug(f"[LLM Request] System prompt: {system_prompt[:200]}...")
-        logger.debug(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
+        logger.info(f"[LLM Request] System prompt: {system_prompt[:200]}...")
+        logger.info(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
         
         try:
             response = await self.client.chat.completions.create(
@@ -53,8 +53,8 @@ class LLMService:
 
     async def ask_text(self, system_prompt: str, user_prompt: str, max_tokens: int = 800) -> str:
         logger.info(f"[LLM Request] Model: {self.model}")
-        logger.debug(f"[LLM Request] System prompt: {system_prompt[:200]}...")
-        logger.debug(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
+        logger.info(f"[LLM Request] System prompt: {system_prompt[:200]}...")
+        logger.info(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
         
         try:
             response = await self.client.chat.completions.create(
