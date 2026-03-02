@@ -105,3 +105,4 @@ preferences:
     -   **Context Hydration**: 在分析单篇文档时，必须注入其引用的其他文档片段（Reference Hydration），以提供上下文。
     -   **Structured Output**: 核心分析任务必须强制要求 JSON 格式输出，以保证下游数据处理的稳定性。
     -   **Action Boundaries (动作边界)**: Agent 仅允许通过 `app/skills/` 目录下的明确定义的函数执行副作用操作（如文件写入）。所有写操作必须具备幂等性（Idempotency），防止重复调用导致数据污染。
+    -   **Tool Use (工具调用)**: 考虑到大模型（如 Gemini Flash）存在“口头答应（Action Hallucination）”的惰性，System Prompt 中必须包含强烈的执行约束（如：“绝对禁止口头答应，必须且只能调用工具”），以强制 LLM 走 Tool Calling 链路，确保数据的真实落地。
