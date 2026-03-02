@@ -97,7 +97,7 @@ class LLMService:
                     model=self.model,
                     messages=messages,
                     tools=tools,
-                    tool_choice="auto"
+                    tool_choice={"type": "function", "function": {"name": "upsert_daily_metric"}}
                 )
                 
                 message = response.choices[0].message
