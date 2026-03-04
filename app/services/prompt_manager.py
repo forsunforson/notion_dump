@@ -1,8 +1,8 @@
-import re
 from pathlib import Path
 from typing import Optional
 
 import yaml
+from app.utils.context_fetcher import ContextFetcher
 
 
 class PromptManager:
@@ -64,25 +64,6 @@ class PromptManager:
         self._profile_str: Optional[str] = None
         self._profile_data: Optional[dict] = None
 
-    def _parse_frontmatter(self, content: str) -> dict:
-        pattern = r'^---\s*\n(.*?)\n---\s*\n'
-        match = re.match(pattern, content, re.DOTALL)
-        
-        if not match:
-            return {}
-            
-        yaml_str = match.group(1)
-        
-        try:
-            metadata = yaml.safe_load(yaml_str)
-            if isinstance(metadata, dict):
-                return metadata
-            return {}
-        except yaml.YAMLError:
-            return {}
-        except Exception:
-            return {}
-
     def load_profile(self) -> str:
         if self._profile_str is not None:
             return self._profile_str
@@ -107,13 +88,8 @@ class PromptManager:
             return self.DEFAULT_PROFILE_STR
         return yaml.dump(profile_data, allow_unicode=True, default_flow_style=False).strip()
 
-    def _is_daily_entry(self, content: str) -> bool:
-        metadata = self._parse_frontmatter(content)
-        title = metadata.get('title', '')
-        return title == self.DAILY_ENTRY_TITLE
-
     def is_daily_entry(self, content: str) -> bool:
-        return self._is_daily_entry(content)
+        return ContextFetcher.is_daily_entry(content)
 
     def _load_template(self, template_name: str) -> Optional[str]:
         template_path = self.templates_dir / template_name
@@ -137,7 +113,7 @@ class PromptManager:
         if raw_content is None:
             raw_content = content
             
-        is_diary = self._is_daily_entry(raw_content)
+        is_diary = self.is_daily_entry(raw_content)
         
         if is_diary:
             template = self._load_template("diary.md")

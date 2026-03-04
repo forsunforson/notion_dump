@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class ContextFetcher:
+    DAILY_ENTRY_TITLE = "Daily Entry"
+
     def __init__(self):
         self.project_root = Path(os.getcwd())
         self.profile_file = self.project_root / "config" / "profile.yaml"
@@ -18,6 +20,23 @@ class ContextFetcher:
         self.reports_dir = self.project_root / "_reports"
         self.notion_output_dir = self.project_root / "notion_output"
         self.history_file = self.project_root / "notion-dump-history.jsonl"
+
+    @staticmethod
+    def parse_frontmatter(content: str) -> dict:
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            data = yaml.safe_load(match.group(1)) or {}
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def is_daily_entry(cls, content: str) -> bool:
+        metadata = cls.parse_frontmatter(content)
+        title = metadata.get("title", "")
+        return isinstance(title, str) and title == cls.DAILY_ENTRY_TITLE
     
     def get_profile(self) -> dict:
         if not self.profile_file.exists():

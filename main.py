@@ -3,7 +3,9 @@ import sys
 import argparse
 import asyncio
 import logging
+import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -124,6 +126,24 @@ async def run_analyze_job(file_paths: list = None):
         logger.error(f"Analyze job failed: {e}")
 
 
+async def run_review_job(start_date: datetime.date, end_date: datetime.date):
+    from app.jobs.periodic_review import PeriodicReviewJob
+
+    logger.info("Starting periodic review job...")
+
+    job = PeriodicReviewJob()
+    try:
+        report_path = await job.run(start_date=start_date, end_date=end_date)
+        logger.info(f"Periodic review completed: {report_path}")
+    except Exception as e:
+        logger.error(f"Periodic review failed: {e}")
+        sys.exit(1)
+
+
+def _parse_yyyy_mm_dd(date_str: str) -> datetime.date:
+    return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Notion Dump - AI-powered knowledge management assistant",
@@ -136,15 +156,16 @@ Examples:
   python main.py --job weekly                  # Run weekly review
   python main.py --job analyze                 # Analyze all files in notion_output/
   python main.py --job analyze file1.md file2.md  # Analyze specific files
+  python main.py --job review --start-date 2026-03-01 --end-date 2026-03-07  # Periodic diary review
   python main.py --job bot                     # Start Telegram Bot
         """
     )
     
     parser.add_argument(
         "--job",
-        choices=["sync", "morning", "weekly", "analyze", "bot"],
+        choices=["sync", "morning", "weekly", "analyze", "review", "bot"],
         default="sync",
-        help="Job type to run: sync (default), morning, weekly, analyze, or bot"
+        help="Job type to run: sync (default), morning, weekly, analyze, review, or bot"
     )
     parser.add_argument(
         "--force", "--full",
@@ -166,6 +187,14 @@ Examples:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default="INFO",
         help="Log level to use (default: INFO)"
+    )
+    parser.add_argument(
+        "--start-date",
+        help="Start date for review job in YYYY-MM-DD (local time, Asia/Shanghai)"
+    )
+    parser.add_argument(
+        "--end-date",
+        help="End date for review job in YYYY-MM-DD (local time, Asia/Shanghai). Defaults to today."
     )
     parser.add_argument(
         "files",
@@ -194,6 +223,23 @@ Examples:
         asyncio.run(run_weekly_job())
     elif args.job == "analyze":
         asyncio.run(run_analyze_job(args.files))
+    elif args.job == "review":
+        if not args.start_date:
+            parser.error("--start-date is required for review job (YYYY-MM-DD)")
+        try:
+            start_date = _parse_yyyy_mm_dd(args.start_date)
+        except ValueError:
+            parser.error("--start-date must be in YYYY-MM-DD format")
+        if args.end_date:
+            try:
+                end_date = _parse_yyyy_mm_dd(args.end_date)
+            except ValueError:
+                parser.error("--end-date must be in YYYY-MM-DD format")
+        else:
+            end_date = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        if end_date < start_date:
+            parser.error("--end-date must be >= --start-date")
+        asyncio.run(run_review_job(start_date=start_date, end_date=end_date))
     elif args.job == "bot":
         from app.jobs.bot_runner import TelegramBotRunner
         runner = TelegramBotRunner()

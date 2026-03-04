@@ -57,15 +57,23 @@ class LLMService:
         logger.info(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
         
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            request_kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=max_tokens,
-                stream=False
-            )
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+
+            num_ctx_env = os.getenv("AI_NUM_CTX")
+            base_url_lower = (self.base_url or "").lower()
+            if "api.openai.com" not in base_url_lower:
+                num_ctx = int(num_ctx_env) if num_ctx_env else 32768
+                request_kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
+
+            response = await self.client.chat.completions.create(**request_kwargs)
             
             content = response.choices[0].message.content
             if not content:

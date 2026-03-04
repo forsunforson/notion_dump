@@ -15,13 +15,14 @@
 ## 2. 核心模块拓扑 (Module Topology)
 
 ### 入口与调度 (Entry & Orchestration)
--   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+分析), `analyze` (仅分析), `bot` (启动对话服务), `morning/weekly` (例行任务) 等指令。
+-   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+分析), `analyze` (仅分析), `review` (周期性日记回顾), `bot` (启动对话服务), `morning/weekly` (例行任务) 等指令。
 -   **`deploy/run_task.sh`**: 生产环境执行包装器。负责：1. `git pull` 自动更新代码；2. 激活 venv；3. 执行 `main.py`；4. 执行 Rclone 备份；5. 进程锁管理。
 -   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务。
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.notion-dump-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
 -   **`analyze_notes.py`**: AI 分析引擎。读取变更的 Markdown，使用 `PromptManager` 组装 Prompt，调用 LLM 提取 `metrics.jsonl` 并生成每日简报。
+-   **`periodic_review.py`**: 周期性日记回顾。根据本地日期范围筛选日记文件，按时间顺序拼接内容，调用 LLM 生成阶段性回顾报告并输出到 `_reports/periodic_review_{start}_{end}.md`。
 -   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
 -   **`routines.py`**: 业务编排层。组合 `ContextFetcher` 和 `LLMService`，生成高度定制化的晨报（含训练建议）和周报。
 
@@ -30,13 +31,13 @@
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑。
--   **`llm_service.py`**: LLM 交互网关。封装 OpenAI 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt。
+-   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。仅负责单向发送 (Send Message)。
--   **`prompt_manager.py`**: 提示词工程管理。根据文件类型（日记 vs 文章）和用户画像 (`profile.yaml`) 动态构建 Prompt。
+-   **`prompt_manager.py`**: 提示词工程管理。根据文件类型（日记 vs 文章）和用户画像 (`profile.yaml`) 动态构建 Prompt；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
 
 ### 工具链 (Utilities - `app/utils/`)
 -   **`notion_converter.py`**: 核心转换器。负责 Notion Block -> Markdown 的渲染，以及 Page Properties -> YAML Frontmatter 的映射。
--   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
+-   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；同时提供 Frontmatter 解析与日记判定（`is_daily_entry`）。
 
 ## 3. 核心数据契约 (Data Schemas)
 
@@ -58,6 +59,9 @@ status: "Done"
 
 [Markdown Content...]
 ```
+
+### 周期性回顾报告 (`_reports/periodic_review_{start}_{end}.md`)
+由 `PeriodicReviewJob` 生成的阶段性回顾报告，输出为 Markdown。`start/end` 为本地日期（Asia/Shanghai），筛选时会将本地日期范围转换为 UTC 再与 Frontmatter 中的 `created_time` 比对。
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)
@@ -92,6 +96,7 @@ preferences:
 1.  **时区策略 (Timezone Policy)**:
     -   **存储层**: 所有机器生成的时间戳（Log, History, Metadata）一律使用 **UTC**。
     -   **展示层**: 所有与 LLM 交互 (Prompt Context) 和用户展示 (Telegram Message) 的时间，必须根据 `profile.yaml` 中的 `timezone` 动态转换为本地时间。
+    -   **筛选层**: 所有基于“本地日期”的筛选（如周期性回顾的 `start-date/end-date`），必须先转换为 UTC 范围，再与 `created_time` 比对。
 
 2.  **同步机制 (Sync Strategy)**:
     -   采用 **Incremental Sync** (增量同步)，仅拉取 `last_edited_time > last_sync_time` 的页面。
