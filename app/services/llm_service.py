@@ -69,7 +69,7 @@ class LLMService:
 
             num_ctx_env = os.getenv("AI_NUM_CTX")
             base_url_lower = (self.base_url or "").lower()
-            if "api.openai.com" not in base_url_lower:
+            if "localhost" in base_url_lower:
                 num_ctx = int(num_ctx_env) if num_ctx_env else 32768
                 request_kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
 
