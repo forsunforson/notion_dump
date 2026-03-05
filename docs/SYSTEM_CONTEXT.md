@@ -7,7 +7,7 @@
 ### 核心数据流 (Core Data Flow)
 1.  **Ingest (摄取)**: `SyncNotionJob` 定时从 Notion API 拉取变更页面（Incremental Sync），通过 `NotionToMarkdown` 转换为带有 YAML Frontmatter 的标准 Markdown 文件，存储于 `notion_output/`。
 2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并 Upsert 写入 `notion_output/metrics.jsonl`。该阶段不生成主观总结/简报。
-3.  **Review (统一回顾引擎)**: `PeriodicReviewJob` 作为统一回顾引擎，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装上下文并调用 LLM 输出报告到 `_reports/`。
+3.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
 4.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
 5.  **Interact (交互)**:
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，调用统一回顾引擎生成 `daily/weekly` 回顾 Markdown，并通过 Telegram 推送。
@@ -23,7 +23,7 @@
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.notion-dump-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
 -   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 Upsert 到 `notion_output/metrics.jsonl`。
--   **`periodic_review.py`**: 统一回顾引擎 (Universal Review Engine)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager` 动态选择 System Prompt，生成回顾报告并输出到 `_reports/{review_type}_{end_date}.md`。
+-   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_socratic_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
 -   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
 -   **`routines.py`**: 轻量分发层。执行 `morning/weekly` 时调用统一回顾引擎生成 Markdown，并通过 `TelegramService` 推送消息。
 
@@ -34,7 +34,7 @@
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。仅负责单向发送 (Send Message)。
--   **`prompt_manager.py`**: 提示词工程管理。根据文件类型（日记 vs 文章）和用户画像 (`profile.yaml`) 动态构建 Prompt；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
+-   **`prompt_manager.py`**: 提示词工程管理。维护“苏格拉底回顾” System/User Prompt（`SOCRATIC_REVIEW_SYSTEM_PROMPT` / `SOCRATIC_REVIEW_USER_PROMPT`），并提供 `build_socratic_review_prompt(profile, metrics_trend, notes_content)` 生成 messages；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
 
 ### 工具链 (Utilities - `app/utils/`)
 -   **`notion_converter.py`**: 核心转换器。负责 Notion Block -> Markdown 的渲染，以及 Page Properties -> YAML Frontmatter 的映射。
@@ -64,9 +64,17 @@ status: "Done"
 ### 回顾报告 (`_reports/{review_type}_{end_date}.md`)
 由统一回顾引擎 `PeriodicReviewJob` 生成的回顾报告，输出为 Markdown。
 - `review_type ∈ {daily, weekly, monthly, custom}`
-- `end_date` 为本地日期（Asia/Shanghai）
+- `end_date` 为本地日期（以 `profile.yaml -> preferences.timezone` 为准）
 - `daily/weekly/monthly` 由引擎自动推算日期范围；`custom` 必须由 CLI 传入 `start_date/end_date`
 - 日记筛选时会将本地日期范围转换为 UTC，再与 Frontmatter 的 `created_time` 比对
+报告输出必须严格遵循固定结构（禁止额外寒暄）：
+```markdown
+## 1. 冰冷的镜像 (The Objective Mirror)
+
+## 2. 偏离警告 (The Guardian's Alert)
+
+## 3. 灵魂拷问 (Socratic Questions)
+```
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)
@@ -112,7 +120,8 @@ preferences:
     -   `deploy/run_task.sh` 是原子操作单元，必须保证 "Code Update -> Execution -> Backup" 的顺序执行。
 
 4.  **AI 交互 (AI Interaction)**:
-    -   **职责边界**: 所有“主观总结/复盘/行动建议”的生成统一收敛到 `PeriodicReviewJob`；`AnalyzeNotesJob` 仅做客观指标抽取与落盘，避免重复实现与 prompt 分叉。
+    -   **职责边界**: 所有“回顾输出”统一收敛到 `PeriodicReviewJob`；`AnalyzeNotesJob` 仅做客观指标抽取与落盘，避免重复实现与 prompt 分叉。
+    -   **输出约束**: 回顾任务禁止输出流水账总结与情绪安慰；只允许以“事实镜像 + 偏离警告 + 苏格拉底式尖锐问题”逼迫用户校准终极意图与行动轨迹。
     -   **Structured Output**: 指标抽取任务必须强制要求 JSON 格式输出，以保证下游数据处理的稳定性。
     -   **Action Boundaries (动作边界)**: Agent 仅允许通过 `app/skills/` 目录下的明确定义的函数执行副作用操作（如文件写入）。所有写操作必须具备幂等性（Idempotency），防止重复调用导致数据污染。
     -   **Tool Use (工具调用)**: 考虑到大模型（如 Gemini Flash）存在“口头答应（Action Hallucination）”的惰性，System Prompt 中必须包含强烈的执行约束（如：“绝对禁止口头答应，必须且只能调用工具”），以强制 LLM 走 Tool Calling 链路，确保数据的真实落地。

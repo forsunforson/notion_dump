@@ -109,12 +109,16 @@ class PromptManager:
         if config_dir is None:
             project_root = self._get_project_root()
             config_dir = project_root / "config"
+        else:
+            project_root = self._get_project_root()
         self.config_dir = Path(config_dir)
         self.profile_path = self.config_dir / "profile.yaml"
         self.templates_dir = self.config_dir / "templates"
+        self.soul_path = project_root / "docs" / "SOUL.md"
         
         self._profile_str: Optional[str] = None
         self._profile_data: Optional[dict] = None
+        self._soul_str: Optional[str] = None
 
     def load_profile(self) -> str:
         if self._profile_str is not None:
@@ -205,18 +209,41 @@ class PromptManager:
         self._profile_data = None
         return self.load_profile()
 
+    def load_soul(self) -> str:
+        if self._soul_str is not None:
+            return self._soul_str
+
+        if not self.soul_path.exists():
+            self._soul_str = ""
+            return self._soul_str
+
+        try:
+            self._soul_str = self.soul_path.read_text(encoding="utf-8").strip()
+            return self._soul_str
+        except Exception as e:
+            print(f"Error loading soul: {e}")
+            self._soul_str = ""
+            return self._soul_str
+
+    def _append_soul(self, system_prompt: str) -> str:
+        base = (system_prompt or "").strip()
+        soul = self.load_soul()
+        if not soul:
+            return base
+        return f"{base}\n\n# SOUL.md (使命锚点)\n{soul}".strip()
+
     def get_review_system_prompt(self, review_type: str) -> str:
         rt = (review_type or "").strip().lower()
         env_key = f"REVIEW_SYSTEM_PROMPT_{rt.upper()}"
         override = os.getenv(env_key, "").strip()
         if override:
-            return override
+            return self._append_soul(override)
 
         legacy = os.getenv("PERIODIC_REVIEW_SYSTEM_PROMPT", "").strip()
         if legacy:
-            return legacy
+            return self._append_soul(legacy)
 
-        return self.REVIEW_SYSTEM_PROMPTS.get(rt) or self.DEFAULT_REVIEW_SYSTEM_PROMPT
+        return self._append_soul(self.REVIEW_SYSTEM_PROMPTS.get(rt) or self.DEFAULT_REVIEW_SYSTEM_PROMPT)
 
     def build_socratic_review_prompt(self, profile: str, metrics_trend: str, notes_content: str) -> list[dict]:
         user_prompt = SOCRATIC_REVIEW_USER_PROMPT.format(
@@ -225,6 +252,6 @@ class PromptManager:
             notes_content=(notes_content or "").strip(),
         )
         return [
-            {"role": "system", "content": SOCRATIC_REVIEW_SYSTEM_PROMPT},
+            {"role": "system", "content": self._append_soul(SOCRATIC_REVIEW_SYSTEM_PROMPT)},
             {"role": "user", "content": user_prompt},
         ]
