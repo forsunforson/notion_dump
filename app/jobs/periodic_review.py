@@ -2,6 +2,7 @@ import re
 import json
 import logging
 import datetime
+from collections import Counter, defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import yaml
@@ -35,8 +36,8 @@ class PeriodicReviewJob:
             raise ValueError(f"Invalid review_type: {review_type}. Must be one of {sorted(REVIEW_TYPES)}")
 
         self.review_type = review_type
-        self.tz = ZoneInfo(LOCAL_TIMEZONE)
         self.prompt_manager = PromptManager()
+        self.tz = self._load_timezone_from_profile()
         self.output_path: Path | None = None
 
     async def run(
@@ -92,40 +93,43 @@ class PeriodicReviewJob:
         out_path = reports_dir / f"{self.review_type}_{end_date.isoformat()}.md"
         self.output_path = out_path
 
-        joined_entries = self._join_entries(diary_entries)
-        metrics_block = self._format_metrics(metrics)
+        profile_text = self.prompt_manager.load_profile()
+        notes_content = self._format_notes_content(diary_entries)
+        metrics_trend = self._format_metrics_trend(metrics, start_date=start_date, end_date=end_date)
 
-        token_est = max(1, (len(joined_entries) + len(metrics_block)) // 2)
+        messages = self.prompt_manager.build_socratic_review_prompt(
+            profile=profile_text, metrics_trend=metrics_trend, notes_content=notes_content
+        )
+        system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
+
+        token_est = max(1, (len(system_prompt) + len(user_prompt)) // 2)
         if token_est > TOKEN_ESTIMATE_WARN_THRESHOLD:
             logger.warning(
-                f"Prompt may be too long for local models: estimated_tokens={token_est}, chars={len(joined_entries) + len(metrics_block)}"
+                f"Prompt may be too long for local models: estimated_tokens={token_est}, chars={len(system_prompt) + len(user_prompt)}"
             )
 
-        user_prompt = (
-            f"请根据以下时间范围内的日记与量化指标生成回顾报告。\n"
-            f"回顾类型：{self.review_type}\n"
-            f"时间范围（本地时间 {LOCAL_TIMEZONE}）：{start_date.isoformat()} ~ {end_date.isoformat()}\n\n"
-            f"{joined_entries}\n\n"
-            f"{metrics_block}\n"
-        )
-
-        llm = LLMService()
-        system_prompt = self.prompt_manager.get_review_system_prompt(self.review_type)
         max_tokens = self._max_tokens_for_review_type(self.review_type)
-        report_md = await llm.ask_text(
-            system_prompt,
-            user_prompt,
-            max_tokens=max_tokens,
-        )
+        try:
+            llm = LLMService()
+            report_md = await llm.ask_text(
+                system_prompt,
+                user_prompt,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate review via LLM: {e}")
+            report_md = ""
         report_md = (report_md or "").strip()
 
         if not report_md:
             report_md = (
-                f"# Review ({self.review_type})\n\n"
-                f"- Range: {start_date.isoformat()} ~ {end_date.isoformat()} ({LOCAL_TIMEZONE})\n"
-                f"- Diary entries: {len(diary_entries)}\n"
-                f"- Metrics rows: {len(metrics)}\n\n"
-                "LLM 返回为空。\n"
+                "## 1. 冰冷的镜像 (The Objective Mirror)\n"
+                "LLM 不可用或返回为空。\n\n"
+                "## 2. 偏离警告 (The Guardian's Alert)\n"
+                "LLM 不可用或返回为空。\n\n"
+                "## 3. 灵魂拷问 (Socratic Questions)\n"
+                "1. 你真正想从这次回顾中得到什么？\n"
             ).strip()
 
         out_path.write_text(report_md + "\n", encoding="utf-8")
@@ -316,6 +320,109 @@ class PeriodicReviewJob:
         except Exception:
             content = "\n".join([json.dumps(m, ensure_ascii=False) for m in metrics])
         return f"## Metrics\n\n```json\n{content}\n```\n"
+
+    def _load_timezone_from_profile(self) -> ZoneInfo:
+        profile = self.prompt_manager.get_profile_data() or {}
+        tz_str = LOCAL_TIMEZONE
+        try:
+            preferences = profile.get("preferences") if isinstance(profile, dict) else {}
+            if isinstance(preferences, dict):
+                tz_candidate = preferences.get("timezone")
+                if isinstance(tz_candidate, str) and tz_candidate.strip():
+                    tz_str = tz_candidate.strip()
+        except Exception:
+            tz_str = LOCAL_TIMEZONE
+
+        try:
+            return ZoneInfo(tz_str)
+        except Exception:
+            return ZoneInfo(LOCAL_TIMEZONE)
+
+    def _format_notes_content(self, entries: list[dict]) -> str:
+        if not entries:
+            return ""
+
+        parts: list[str] = []
+        for e in entries:
+            header = f"### {e['local_date']} {e['title']}".strip()
+            body = (e.get("body") or "").strip()
+            if body:
+                parts.append(f"{header}\n{body}")
+            else:
+                parts.append(f"{header}\n（空）")
+        return "\n\n---\n\n".join(parts).strip()
+
+    def _format_metrics_trend(
+        self, metrics: list[dict], start_date: datetime.date, end_date: datetime.date
+    ) -> str:
+        if not metrics:
+            return ""
+
+        by_date: dict[str, list[dict]] = defaultdict(list)
+        for m in metrics:
+            d = self._extract_metric_date(m)
+            if d is None:
+                continue
+            by_date[d.isoformat()].append(m)
+
+        def is_number(v) -> bool:
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+        per_day_lines: list[str] = []
+        numeric_series: dict[str, list[float]] = defaultdict(list)
+        categorical_series: dict[str, list[str]] = defaultdict(list)
+
+        for day in sorted(by_date.keys()):
+            rows = by_date[day]
+            agg_num: dict[str, list[float]] = defaultdict(list)
+            agg_cat: dict[str, list[str]] = defaultdict(list)
+
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                for k, v in row.items():
+                    if k in {"date", "timestamp", "source"}:
+                        continue
+                    if v is None:
+                        continue
+                    if is_number(v):
+                        agg_num[k].append(float(v))
+                        numeric_series[k].append(float(v))
+                    elif isinstance(v, str) and v.strip():
+                        agg_cat[k].append(v.strip())
+                        categorical_series[k].append(v.strip())
+
+            parts: list[str] = [f"- {day}"]
+            for k in sorted(agg_num.keys()):
+                vals = agg_num[k]
+                if not vals:
+                    continue
+                if len(vals) == 1:
+                    parts.append(f"{k}={vals[0]:g}")
+                else:
+                    avg = sum(vals) / len(vals)
+                    parts.append(f"{k}≈{avg:g} (min={min(vals):g}, max={max(vals):g}, n={len(vals)})")
+            for k in sorted(agg_cat.keys()):
+                vals = agg_cat[k]
+                if not vals:
+                    continue
+                mode = Counter(vals).most_common(1)[0][0]
+                parts.append(f"{k}≈{mode}")
+
+            per_day_lines.append("  ".join(parts))
+
+        extremes: list[str] = []
+        for k in sorted(numeric_series.keys()):
+            vals = numeric_series[k]
+            if not vals:
+                continue
+            extremes.append(f"- {k}: min={min(vals):g}, max={max(vals):g}, n={len(vals)}")
+
+        range_line = f"{start_date.isoformat()} ~ {end_date.isoformat()} ({self.tz.key})"
+        blocks: list[str] = [f"Range: {range_line}", "", "Daily:", *per_day_lines]
+        if extremes:
+            blocks.extend(["", "Extremes:", *extremes])
+        return "\n".join(blocks).strip()
 
     def _max_tokens_for_review_type(self, review_type: str) -> int:
         if review_type == "daily":
