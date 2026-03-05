@@ -126,17 +126,25 @@ async def run_analyze_job(file_paths: list = None):
         logger.error(f"Analyze job failed: {e}")
 
 
-async def run_review_job(start_date: datetime.date, end_date: datetime.date):
+async def run_review_job(
+    review_type: str,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
+):
     from app.jobs.periodic_review import PeriodicReviewJob
 
-    logger.info("Starting periodic review job...")
+    logger.info("Starting review job...")
 
-    job = PeriodicReviewJob()
     try:
-        report_path = await job.run(start_date=start_date, end_date=end_date)
-        logger.info(f"Periodic review completed: {report_path}")
+        job = PeriodicReviewJob(review_type=review_type)
+        report_md = await job.run(start_date=start_date, end_date=end_date)
+        if job.output_path:
+            logger.info(f"Review saved: {job.output_path}")
+        else:
+            logger.info("Review saved.")
+        return report_md
     except Exception as e:
-        logger.error(f"Periodic review failed: {e}")
+        logger.error(f"Review job failed: {e}")
         sys.exit(1)
 
 
@@ -156,7 +164,10 @@ Examples:
   python main.py --job weekly                  # Run weekly review
   python main.py --job analyze                 # Analyze all files in notion_output/
   python main.py --job analyze file1.md file2.md  # Analyze specific files
-  python main.py --job review --start-date 2026-03-01 --end-date 2026-03-07  # Periodic diary review
+  python main.py --job review --type daily     # Generate yesterday review and save
+  python main.py --job review --type weekly    # Generate last-week review and save
+  python main.py --job review --type monthly   # Generate last-month review and save
+  python main.py --job review --type custom --start-date 2026-03-01 --end-date 2026-03-07  # Custom range review
   python main.py --job bot                     # Start Telegram Bot
         """
     )
@@ -189,12 +200,18 @@ Examples:
         help="Log level to use (default: INFO)"
     )
     parser.add_argument(
+        "--type",
+        choices=["daily", "weekly", "monthly", "custom"],
+        default="daily",
+        help="Review type (only for review job): daily/weekly/monthly/custom"
+    )
+    parser.add_argument(
         "--start-date",
-        help="Start date for review job in YYYY-MM-DD (local time, Asia/Shanghai)"
+        help="Start date for custom review in YYYY-MM-DD (local time, Asia/Shanghai)"
     )
     parser.add_argument(
         "--end-date",
-        help="End date for review job in YYYY-MM-DD (local time, Asia/Shanghai). Defaults to today."
+        help="End date for custom review in YYYY-MM-DD (local time, Asia/Shanghai)"
     )
     parser.add_argument(
         "files",
@@ -224,22 +241,23 @@ Examples:
     elif args.job == "analyze":
         asyncio.run(run_analyze_job(args.files))
     elif args.job == "review":
-        if not args.start_date:
-            parser.error("--start-date is required for review job (YYYY-MM-DD)")
-        try:
-            start_date = _parse_yyyy_mm_dd(args.start_date)
-        except ValueError:
-            parser.error("--start-date must be in YYYY-MM-DD format")
-        if args.end_date:
+        review_type = args.type
+        start_date = None
+        end_date = None
+        if review_type == "custom":
+            if not args.start_date or not args.end_date:
+                parser.error("--start-date and --end-date are required for custom review (YYYY-MM-DD)")
+            try:
+                start_date = _parse_yyyy_mm_dd(args.start_date)
+            except ValueError:
+                parser.error("--start-date must be in YYYY-MM-DD format")
             try:
                 end_date = _parse_yyyy_mm_dd(args.end_date)
             except ValueError:
                 parser.error("--end-date must be in YYYY-MM-DD format")
-        else:
-            end_date = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
-        if end_date < start_date:
-            parser.error("--end-date must be >= --start-date")
-        asyncio.run(run_review_job(start_date=start_date, end_date=end_date))
+            if end_date < start_date:
+                parser.error("--end-date must be >= --start-date")
+        asyncio.run(run_review_job(review_type=review_type, start_date=start_date, end_date=end_date))
     elif args.job == "bot":
         from app.jobs.bot_runner import TelegramBotRunner
         runner = TelegramBotRunner()

@@ -1,5 +1,5 @@
-import os
 import re
+import json
 import logging
 import datetime
 from pathlib import Path
@@ -7,11 +7,14 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from app.services.llm_service import LLMService
+from app.services.prompt_manager import PromptManager
+from app.utils.context_fetcher import ContextFetcher
 
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = "notion_output"
 REPORTS_DIR = "_reports"
+METRICS_FILENAME = "metrics.jsonl"
 
 LOCAL_TIMEZONE = "Asia/Shanghai"
 
@@ -20,56 +23,26 @@ DIARY_TYPE_FIELD = "type"
 DIARY_TYPE_VALUES = {"diary", "Diary", "日记"}
 TITLE_FALLBACK_VALUES = {"Daily Entry"}
 
-PERIODIC_REVIEW_SYSTEM_PROMPT = os.getenv("PERIODIC_REVIEW_SYSTEM_PROMPT", "").strip() or (
-    """
-    # Role (角色定位)
-你是一位顶尖的个人效能教练与心理分析师。你擅长从碎片化的日常记录中发现潜在的思维模式、情绪周期和行为反馈循环。你客观、敏锐，既能共情用户的低谷，也能冷峻地指出认知盲区。
-
-# Task (任务目标)
-我将提供过去一段时间内按时间顺序排列的日记。请通读这些日记，进行深度的阶段性回顾与洞察分析。
-
-# Analysis Framework (分析框架与输出结构)
-请严格按照以下 Markdown 格式输出你的分析报告，语气保持“专业、精炼、直击要害”：
-
-## 1. 📊 周期执行摘要 (Executive Summary)
-* 用一段话总结这个周期内的核心主线（例如：专注于某项工作、情绪波动较大、或者处于某种转变期）。
-* 提取出这个周期内被高频提及的 3 个“关键词”。
-
-## 2. 🧠 情绪与心理状态洞察 (Emotional & Cognitive Analysis)
-* **情绪主色调**：这段时间的主导情绪是什么？（焦虑、平静、专注、亢奋等）
-* **波峰与波谷**：明确指出哪几天情绪/精力最好，哪几天最差，并**深入分析触发这些波动的根本原因**（Trigger）。
-* **认知盲区/思维反刍**：指出日记中反复出现的担忧、自我怀疑或不理性的认知模式（如果有）。
-
-## 3. 🏋️ 行为与精力系统回顾 (Behavioral & Energy System)
-*(注：结合用户的身体基线与目标进行评估)*
-* **精力管理**：睡眠、饮食、运动对日常精力的影响模式是什么？有没有发现明显的“正反馈”或“负反馈”循环？
-* **执行力**：设定的日常计划（如训练、Notion Dump 开发等）执行情况如何？阻力通常出现在哪个环节？
-
-## 4. 💡 深度洞察与模式识别 (Deep Insights & Pattern Recognition)
-* 跨越单篇日记的视角，你观察到了什么连用户自己都没意识到的潜在规律？
-* 用户的注意力分配，是否与其长期的“财务自由/身体素质”目标相匹配？
-
-## 5. 🎯 行动建议 (Actionable Outlook)
-基于上述分析，使用 Start / Stop / Continue 框架给出具体的指导：
-* **🟢 Start (开始做)**：一个可以立刻提升当前状态的小微行动。
-* **🔴 Stop (停止做)**：一个正在消耗能量或引发负面情绪的习惯/思维。
-* **🔵 Continue (继续做)**：当前做得很好，需要保持的优质策略。
-
-# Constraints (约束)
-* 不要复述日记的流水账，我要的是**归纳、提炼和洞察**。
-* 保持排版的美观，多使用列表和加粗突出重点。
-* 考虑到用户是程序员与价值投资者，请多使用系统思维、复利、反馈杠杆、期望值等理性概念来阐述心理学现象。
-    """
-)
+REVIEW_TYPES = {"daily", "weekly", "monthly", "custom"}
 
 TOKEN_ESTIMATE_WARN_THRESHOLD = 30000
 
 
 class PeriodicReviewJob:
-    def __init__(self):
-        self.tz = ZoneInfo(LOCAL_TIMEZONE)
+    def __init__(self, review_type: str = "custom"):
+        review_type = (review_type or "").strip().lower()
+        if review_type not in REVIEW_TYPES:
+            raise ValueError(f"Invalid review_type: {review_type}. Must be one of {sorted(REVIEW_TYPES)}")
 
-    async def run(self, start_date: datetime.date, end_date: datetime.date) -> str:
+        self.review_type = review_type
+        self.tz = ZoneInfo(LOCAL_TIMEZONE)
+        self.prompt_manager = PromptManager()
+        self.output_path: Path | None = None
+
+    async def run(
+        self, start_date: datetime.date | None = None, end_date: datetime.date | None = None
+    ) -> str:
+        start_date, end_date = self._resolve_date_range(start_date=start_date, end_date=end_date)
         start_utc, end_utc = self._local_date_range_to_utc(start_date, end_date)
 
         md_files = self._list_markdown_files()
@@ -86,7 +59,7 @@ class PeriodicReviewJob:
             frontmatter, body = self._parse_frontmatter(raw)
             if not frontmatter:
                 continue
-            if not self._is_diary(frontmatter):
+            if not (ContextFetcher.is_daily_entry(raw) or self._is_diary(frontmatter)):
                 continue
 
             created_utc = self._parse_created_time_utc(frontmatter)
@@ -111,47 +84,78 @@ class PeriodicReviewJob:
         diary_entries.sort(key=lambda x: x["created_utc"])
         logger.info(f"Selected {len(diary_entries)} diary entries in range.")
 
+        metrics = self._load_metrics_in_range(start_date=start_date, end_date=end_date)
+        logger.info(f"Selected {len(metrics)} metrics rows in range.")
+
         reports_dir = Path(REPORTS_DIR)
         reports_dir.mkdir(parents=True, exist_ok=True)
-        out_path = reports_dir / f"periodic_review_{start_date.isoformat()}_{end_date.isoformat()}.md"
+        out_path = reports_dir / f"{self.review_type}_{end_date.isoformat()}.md"
+        self.output_path = out_path
 
-        if not diary_entries:
-            out_path.write_text(
-                f"# Periodic Review ({start_date.isoformat()} ~ {end_date.isoformat()})\n\n未找到符合条件的日记文件。\n",
-                encoding="utf-8",
-            )
-            return str(out_path)
+        joined_entries = self._join_entries(diary_entries)
+        metrics_block = self._format_metrics(metrics)
 
-        joined = self._join_entries(diary_entries)
-        token_est = max(1, len(joined) // 2)
+        token_est = max(1, (len(joined_entries) + len(metrics_block)) // 2)
         if token_est > TOKEN_ESTIMATE_WARN_THRESHOLD:
             logger.warning(
-                f"Prompt may be too long for local models: estimated_tokens={token_est}, chars={len(joined)}"
+                f"Prompt may be too long for local models: estimated_tokens={token_est}, chars={len(joined_entries) + len(metrics_block)}"
             )
 
         user_prompt = (
-            f"请根据以下时间范围内的日记内容生成阶段性回顾报告。\n"
+            f"请根据以下时间范围内的日记与量化指标生成回顾报告。\n"
+            f"回顾类型：{self.review_type}\n"
             f"时间范围（本地时间 {LOCAL_TIMEZONE}）：{start_date.isoformat()} ~ {end_date.isoformat()}\n\n"
-            f"{joined}"
+            f"{joined_entries}\n\n"
+            f"{metrics_block}\n"
         )
 
         llm = LLMService()
+        system_prompt = self.prompt_manager.get_review_system_prompt(self.review_type)
+        max_tokens = self._max_tokens_for_review_type(self.review_type)
         report_md = await llm.ask_text(
-            PERIODIC_REVIEW_SYSTEM_PROMPT,
+            system_prompt,
             user_prompt,
-            max_tokens=20000,
+            max_tokens=max_tokens,
         )
         report_md = (report_md or "").strip()
 
         if not report_md:
-            out_path.write_text(
-                f"# Periodic Review ({start_date.isoformat()} ~ {end_date.isoformat()})\n\nLLM 返回为空。\n",
-                encoding="utf-8",
-            )
-            return str(out_path)
+            report_md = (
+                f"# Review ({self.review_type})\n\n"
+                f"- Range: {start_date.isoformat()} ~ {end_date.isoformat()} ({LOCAL_TIMEZONE})\n"
+                f"- Diary entries: {len(diary_entries)}\n"
+                f"- Metrics rows: {len(metrics)}\n\n"
+                "LLM 返回为空。\n"
+            ).strip()
 
         out_path.write_text(report_md + "\n", encoding="utf-8")
-        return str(out_path)
+        return report_md
+
+    def _resolve_date_range(
+        self, start_date: datetime.date | None, end_date: datetime.date | None
+    ) -> tuple[datetime.date, datetime.date]:
+        today_local = datetime.datetime.now(self.tz).date()
+
+        if self.review_type == "daily":
+            d = today_local - datetime.timedelta(days=1)
+            return d, d
+
+        if self.review_type == "weekly":
+            last_sunday = today_local - datetime.timedelta(days=today_local.isoweekday())
+            last_monday = last_sunday - datetime.timedelta(days=6)
+            return last_monday, last_sunday
+
+        if self.review_type == "monthly":
+            first_day_this_month = today_local.replace(day=1)
+            last_day_prev_month = first_day_this_month - datetime.timedelta(days=1)
+            first_day_prev_month = last_day_prev_month.replace(day=1)
+            return first_day_prev_month, last_day_prev_month
+
+        if start_date is None or end_date is None:
+            raise ValueError("custom review_type requires start_date and end_date")
+        if start_date > end_date:
+            raise ValueError("start_date must be <= end_date")
+        return start_date, end_date
 
     def _list_markdown_files(self) -> list[Path]:
         output_dir = Path(OUTPUT_DIR)
@@ -236,6 +240,88 @@ class PeriodicReviewJob:
 
     def _join_entries(self, entries: list[dict]) -> str:
         parts = []
+        if not entries:
+            return "## Diary Entries\n\n未找到符合条件的日记。\n"
+        parts.append("## Diary Entries\n")
         for e in entries:
             parts.append(f"### [{e['local_date']}] {e['title']}\n{e['body']}\n\n---\n")
         return "\n".join(parts).strip() + "\n"
+
+    def _load_metrics_in_range(self, start_date: datetime.date, end_date: datetime.date) -> list[dict]:
+        metrics_path = Path(OUTPUT_DIR) / METRICS_FILENAME
+        if not metrics_path.exists():
+            return []
+
+        rows = []
+        try:
+            with open(metrics_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = (line or "").strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    d = self._extract_metric_date(obj)
+                    if d is None:
+                        continue
+                    if start_date <= d <= end_date:
+                        rows.append(obj)
+        except Exception as e:
+            logger.error(f"Error reading metrics file {metrics_path}: {e}")
+            return []
+
+        def sort_key(o: dict):
+            date_s = o.get("date") or ""
+            src = o.get("source") or ""
+            ts = o.get("timestamp") or ""
+            return (date_s, src, ts)
+
+        rows.sort(key=sort_key)
+        return rows
+
+    def _extract_metric_date(self, metric: dict) -> datetime.date | None:
+        if not isinstance(metric, dict):
+            return None
+
+        date_value = metric.get("date")
+        if isinstance(date_value, str) and date_value.strip():
+            try:
+                return datetime.date.fromisoformat(date_value.strip()[:10])
+            except ValueError:
+                return None
+
+        ts_value = metric.get("timestamp")
+        if isinstance(ts_value, str) and ts_value.strip():
+            s = ts_value.strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            try:
+                dt = datetime.datetime.fromisoformat(s)
+            except ValueError:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return dt.astimezone(self.tz).date()
+
+        return None
+
+    def _format_metrics(self, metrics: list[dict]) -> str:
+        if not metrics:
+            return "## Metrics\n\n未找到该时间段内的 metrics.jsonl 记录。\n"
+        try:
+            content = json.dumps(metrics, ensure_ascii=False, indent=2)
+        except Exception:
+            content = "\n".join([json.dumps(m, ensure_ascii=False) for m in metrics])
+        return f"## Metrics\n\n```json\n{content}\n```\n"
+
+    def _max_tokens_for_review_type(self, review_type: str) -> int:
+        if review_type == "daily":
+            return 8000
+        if review_type == "weekly":
+            return 14000
+        if review_type == "monthly":
+            return 18000
+        return 20000
