@@ -101,6 +101,18 @@ class LLMService:
         logger.info(f"[LLM Request] Model: {self.model} (with tools, messages)")
 
         tool_calls_executed = 0
+        def _prune_nones(obj: object) -> object:
+            if isinstance(obj, dict):
+                out: dict = {}
+                for k, v in obj.items():
+                    if v is None:
+                        continue
+                    out[k] = _prune_nones(v)
+                return out
+            if isinstance(obj, list):
+                return [_prune_nones(x) for x in obj if x is not None]
+            return obj
+
         def sanitize_message(m: object) -> dict | None:
             if not isinstance(m, dict):
                 return None
@@ -222,25 +234,52 @@ class LLMService:
                 )
                 #endregion debug-point
                 if message.tool_calls:
-                    local_messages.append(
-                        sanitize_message(
+                    #region debug-point
+                    try:
+                        tc0 = (message.tool_calls or [])[0]
+                        tc0_dump = tc0.model_dump() if tc0 else {}
+                        dbg_event(
+                            "llm.tools.tool_call_shape",
                             {
-                                "role": "assistant",
-                                "content": "" if message.content is None else message.content,
-                                "tool_calls": [
+                                "tc0_keys": sorted(list((tc0_dump or {}).keys())),
+                                "tc0_function_keys": sorted(list(((tc0_dump or {}).get("function") or {}).keys())),
+                                "tc0_has_thought_signature": (
+                                    ("thought_signature" in (tc0_dump or {}))
+                                    or ("thoughtSignature" in (tc0_dump or {}))
+                                    or ("thought_signature" in ((tc0_dump or {}).get("function") or {}))
+                                    or ("thoughtSignature" in ((tc0_dump or {}).get("function") or {}))
+                                ),
+                            },
+                        )
+                    except Exception:
+                        pass
+                    #endregion debug-point
+                    tool_calls_payload: list[dict] = []
+                    for tc in (message.tool_calls or []):
+                        try:
+                            tool_calls_payload.append(_prune_nones(tc.model_dump()))
+                        except Exception:
+                            tool_calls_payload.append(
+                                _prune_nones(
                                     {
-                                        "id": tc.id,
-                                        "type": tc.type,
+                                        "id": getattr(tc, "id", None),
+                                        "type": getattr(tc, "type", None),
                                         "function": {
                                             "name": tc.function.name,
                                             "arguments": tc.function.arguments,
                                         },
                                     }
-                                    for tc in (message.tool_calls or [])
-                                ],
+                                )
+                            )
+                    local_messages.append(
+                        sanitize_message(
+                            {
+                                "role": "assistant",
+                                "content": "" if message.content is None else message.content,
+                                "tool_calls": tool_calls_payload,
                             }
                         )
-                        or {"role": "assistant", "content": ""}
+                        or {"role": "assistant", "content": "", "tool_calls": tool_calls_payload}
                     )
                 else:
                     local_messages.append(
