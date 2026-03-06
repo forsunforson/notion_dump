@@ -11,7 +11,18 @@ from app.services.notion_service import NotionService
 QuickDumpCategory = Literal["reflection", "idea", "vent", "journal"]
 
 
-def save_reflection_record(content: str, category: QuickDumpCategory = "reflection", source: str = "Telegram") -> str:
+def save_reflection_record(
+    content: str,
+    category: QuickDumpCategory = "reflection",
+    source: str = "Telegram",
+    context_question: str = "",
+) -> str:
+    """
+    Save user's raw reflection/idea/vent/journal content into Notion Inbox.
+
+    context_question is used to carry the original question / quoted message that the user is replying to.
+    If it is not empty, it MUST be passed through verbatim (do not rewrite, summarize, or truncate).
+    """
     if content is None or not str(content).strip():
         return "Error: empty content."
 
@@ -21,7 +32,8 @@ def save_reflection_record(content: str, category: QuickDumpCategory = "reflecti
 
     captured_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     content_str = str(content)
-    dedupe_key = hashlib.sha256(f"{category}\n{content_str}".encode("utf-8")).hexdigest()
+    context_str = str(context_question or "")
+    dedupe_key = hashlib.sha256(f"{category}\n{context_str}\n{content_str}".encode("utf-8")).hexdigest()
 
     try:
         state: dict = {}
@@ -40,7 +52,12 @@ def save_reflection_record(content: str, category: QuickDumpCategory = "reflecti
                 pass
 
         notion = NotionService()
-        result = notion.append_to_inbox(content=content_str, source=source, category=category)
+        result = notion.append_to_inbox(
+            content=content_str,
+            source=source,
+            category=category,
+            context_question=context_str,
+        )
         page_id = result.get("page_id") or ""
         url = result.get("url") or ""
         captured_at = result.get("captured_at") or captured_at
@@ -73,6 +90,10 @@ QUICK_DUMP_SKILL_SCHEMA = {
                     "type": "string",
                     "description": "User's full raw text. Preserve verbatim."
                 },
+                "context_question": {
+                    "type": "string",
+                    "description": "The original question / quoted message the user is replying to. If present, preserve verbatim."
+                },
                 "category": {
                     "type": "string",
                     "enum": ["reflection", "idea", "vent", "journal"],
@@ -87,4 +108,3 @@ QUICK_DUMP_SKILL_SCHEMA = {
         }
     }
 }
-

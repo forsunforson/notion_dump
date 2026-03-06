@@ -290,12 +290,32 @@ class NotionService:
             )
         return blocks
 
-    def append_to_inbox(self, content: str, source: str = "Telegram", category: str = "reflection") -> dict:
+    @classmethod
+    def _content_to_quote_blocks(cls, content: str) -> list[dict]:
+        blocks: list[dict] = []
+        for chunk in cls._split_text_for_notion(content):
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "quote",
+                    "quote": {"rich_text": cls._build_rich_text(chunk)},
+                }
+            )
+        return blocks
+
+    def append_to_inbox(
+        self,
+        content: str,
+        source: str = "Telegram",
+        category: str = "reflection",
+        context_question: str = "",
+    ) -> dict:
         database_id = (os.getenv("NOTION_INBOX_DATABASE_ID") or "").strip()
         if not database_id:
             raise ValueError("NOTION_INBOX_DATABASE_ID environment variable is not set")
 
         raw_content = content if content is not None else ""
+        raw_context_question = context_question if context_question is not None else ""
         title_seed = " ".join(raw_content.strip().split())
         title_prefix = (title_seed[:20] or "Quick Dump").strip()
         captured_at = self._utc_now_iso()
@@ -350,7 +370,10 @@ class NotionService:
             lambda t: {"date": {"start": captured_at}} if t == "date" else None,
         )
 
-        children = self._content_to_paragraph_blocks(raw_content)
+        children: list[dict] = []
+        if str(raw_context_question).strip():
+            children.extend(self._content_to_quote_blocks(str(raw_context_question).strip()))
+        children.extend(self._content_to_paragraph_blocks(raw_content))
 
         page = self.client.pages.create(
             parent={"database_id": database_id},

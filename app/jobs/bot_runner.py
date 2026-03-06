@@ -85,6 +85,7 @@ class TelegramBotRunner:
                     "2) 当用户提供或修改任何健康数据（体重、精力、睡眠、训练打分等）时，你必须且只能立即调用 upsert_daily_metric 来记录。",
                     "3) 如果同一条消息同时包含“指标数据”和“自我记录/感悟”，你必须依次调用两个工具，禁止遗漏。",
                     "4) 绝对禁止口头答应。在未调用工具前，不允许回复“收到/已记录/好的”等文字。",
+                    "【上下文捕获强制要求】：当你调用 save_reflection_record 时，必须检视对话历史。如果用户是在明确回答你之前抛出的某个问题（特别是周期回顾中的『灵魂拷问』），或者用户 Reply 了某条特定的消息，你必须将那个【原始问题的内容】完整提取出来，并填入 context_question 参数中。绝不允许只记录回答而丢失问题背景。",
                     "",
                     "【回复风格】",
                     "当 save_reflection_record 调用成功后，你只需要用极简、冷峻的语气回复：已刻录。或者基于用户的回答继续进行下一次更深度的苏格拉底追问。",
@@ -127,9 +128,19 @@ class TelegramBotRunner:
 
             executed = {"save_reflection_record": 0, "upsert_daily_metric": 0}
 
-            def wrapped_save_reflection_record(content: str, category: str = "reflection", source: str = "Telegram") -> str:
+            def wrapped_save_reflection_record(
+                content: str,
+                category: str = "reflection",
+                source: str = "Telegram",
+                context_question: str = "",
+            ) -> str:
                 executed["save_reflection_record"] += 1
-                return save_reflection_record(content=content, category=category, source=source)
+                return save_reflection_record(
+                    content=content,
+                    category=category,
+                    source=source,
+                    context_question=context_question,
+                )
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
                 executed["upsert_daily_metric"] += 1
@@ -148,23 +159,11 @@ class TelegramBotRunner:
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
             if executed["save_reflection_record"] == 0 and should_quick_dump(user_text, bool(reply_to_text)):
-                content_to_save = user_text
-                if reply_to_text:
-                    content_to_save = "\n\n".join(
-                        [
-                            "<reply_to_message>",
-                            reply_to_text,
-                            "</reply_to_message>",
-                            "<user_message>",
-                            user_text,
-                            "</user_message>",
-                        ]
-                    ).strip()
-
                 wrapped_save_reflection_record(
-                    content=content_to_save,
+                    content=user_text,
                     category=categorize(user_text, bool(reply_to_text)),
                     source="Telegram",
+                    context_question=reply_to_text or "",
                 )
                 reply_text = "已刻录"
 
