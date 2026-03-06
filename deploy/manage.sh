@@ -124,7 +124,7 @@ fi
 show_main_menu() {
     echo ""
     echo "=========================================="
-    echo "   Notion Dump Manager (Deploy Tool)"
+    echo "   ChronoFold Manager (Deploy Tool)"
     echo "=========================================="
     echo "1. 🚀 Run Task Now"
     echo "2. 🤖 Manage Bot Service"
@@ -163,7 +163,7 @@ manage_bot_service() {
                 
                 # 自动获取当前绝对路径和当前用户 
                 CURRENT_USER=$(whoami) 
-                SERVICE_FILE="/etc/systemd/system/notion-bot.service" 
+                SERVICE_FILE="/etc/systemd/system/chronofold-bot.service" 
     
                 echo "👤 运行用户: $CURRENT_USER" 
                 echo "📂 项目路径: $PROJECT_ROOT" 
@@ -171,7 +171,7 @@ manage_bot_service() {
                 # 使用 sudo 生成配置文件并写入系统目录 
                 sudo bash -c "cat > $SERVICE_FILE" <<EOF 
 [Unit] 
-Description=Notion Dump Telegram Bot Agent 
+Description=ChronoFold Telegram Bot Agent 
 After=network.target 
 
 [Service] 
@@ -191,28 +191,28 @@ EOF
                 
                 # 重新加载 Systemd，设置开机自启并立刻启动 
                 sudo systemctl daemon-reload 
-                sudo systemctl enable notion-bot 
-                sudo systemctl restart notion-bot 
+                sudo systemctl enable chronofold-bot 
+                sudo systemctl restart chronofold-bot 
                 
                 echo "🚀 Bot 守护进程已启动并设置为开机自启！" 
-                echo "🔍 你可以使用 'sudo systemctl status notion-bot' 查看运行状态" 
+                echo "🔍 你可以使用 'sudo systemctl status chronofold-bot' 查看运行状态" 
                 ;;
             2) # Restart
                 echo "🔄 Restarting Bot Service..."
-                sudo systemctl restart notion-bot
-                sudo systemctl status notion-bot --no-pager
+                sudo systemctl restart chronofold-bot
+                sudo systemctl status chronofold-bot --no-pager
                 echo "✅ Bot restarted."
                 ;;
             3) # Status
                 echo "❓ Checking Bot Status..."
-                sudo systemctl status notion-bot --no-pager
+                sudo systemctl status chronofold-bot --no-pager
                 ;;
             4) # Logs
                 echo ""
                 echo "👀 Showing Bot logs (Press Ctrl+C to stop)..."
-                echo "Command: journalctl -u notion-bot -f"
+                echo "Command: journalctl -u chronofold-bot -f"
                 echo "------------------------------------------"
-                sudo journalctl -u notion-bot -f
+                sudo journalctl -u chronofold-bot -f
                 ;;
             5) return ;;
             *) echo "❌ Invalid option." ;;
@@ -414,7 +414,7 @@ view_schedule() {
     local found=0
     
     if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT"; then
-        echo "Tasks for Notion Dump:"
+        echo "Tasks for ChronoFold:"
         echo ""
         crontab -l 2>/dev/null | grep "$RUN_TASK_SCRIPT" | while read line; do
             # Parse and display nicely

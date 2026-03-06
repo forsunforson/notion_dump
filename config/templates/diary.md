@@ -17,7 +17,7 @@
 3. **tags**: (字符串数组) 建议的 1-3 个分类标签。
 4. **insights**: (对象) 深度定性分析
    - `workout`: (字符串或 null) 评估今日训练记录。结合 user_profile 中 primary_goals 的目标，以及 training_experience 的背景，给出极其简短的专业点评。若无训练记录，严格返回 null。
-   - `brain_dump`: (字符串或 null) 提炼关于投资、技术架构（如 Notion Dump）、人生规划的思考。基于 investment_philosophy ，提炼出 1 个核心 Insight。若无相关思考，返回 null。
+  - `brain_dump`: (字符串或 null) 提炼关于投资、技术架构（如 ChronoFold）、人生规划的思考。基于 investment_philosophy ，提炼出 1 个核心 Insight。若无相关思考，返回 null。
    - `mental_state`: (字符串) 分析字里行间的语气，用一句话给出明日的专属状态调整建议。
 5. **daily_metrics**: (对象) 结构化定量数据（用于后续时间序列分析）。
    - **核心规则**：仅从日记内容中提取。如果日记中未提及某项指标，对应的值**必须返回 null**，绝对不允许凭空捏造。

@@ -15,8 +15,10 @@ from app.utils.notion_converter import NotionToMarkdown, NotionMapper
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = "notion_output"
-STATE_FILE = ".notion-dump-state.json"
-HISTORY_FILE = "notion-dump-history.jsonl"
+STATE_FILE = ".chronofold-state.json"
+LEGACY_STATE_FILE = ".notion-dump-state.json"
+HISTORY_FILE = "chronofold-history.jsonl"
+LEGACY_HISTORY_FILE = "notion-dump-history.jsonl"
 
 
 class SyncNotionJob:
@@ -58,9 +60,10 @@ class SyncNotionJob:
     @staticmethod
     def load_state() -> Optional[str]:
         """Load the last sync time from state file."""
-        if os.path.exists(STATE_FILE):
+        state_path = STATE_FILE if os.path.exists(STATE_FILE) else LEGACY_STATE_FILE
+        if os.path.exists(state_path):
             try:
-                with open(STATE_FILE, "r") as f:
+                with open(state_path, "r") as f:
                     state = json.load(f)
                     return state.get("last_sync_time")
             except Exception as e:

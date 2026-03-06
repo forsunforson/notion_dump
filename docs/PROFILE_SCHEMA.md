@@ -1,7 +1,7 @@
 # User Profile Schema & Best Practices (profile.yaml)
 
 ## 1. 设计理念 (Design Philosophy)
-`profile.yaml` 是 Notion Dump 系统的**唯一事实来源 (Single Source of Truth)**，用于定义用户的物理基线、资产结构、认知偏好和近期焦点。
+`profile.yaml` 是 ChronoFold 系统的**唯一事实来源 (Single Source of Truth)**，用于定义用户的物理基线、资产结构、认知偏好和近期焦点。
 为了优化 LLM 的 Token 消耗并提高回答的精准度，本配置采用**领域解耦 (Domain Decoupling)**与**按需加载 (Lazy Loading)**的设计原则。由于该文件包含极度隐私的个人数据，已加入 `.gitignore`，代码库中仅保留本 Schema 规范。
 
 ## 2. 数据生命周期与归类 (Data Lifecycle & Categorization)
@@ -109,7 +109,7 @@ investment_philosophy: "[投资风格]"
 # 短期工作内存：动态焦点 (建议每月/每季度更新)
 # ---------------------------------------------------------
 recent_focus:
-  current_projects: ["notion_dump", "其他并行项目"]
+  current_projects: ["chronofold", "其他并行项目"]
   weekly_goal: "[每周目标]"
   monthly_goal: "[每月目标]"
   quarterly_goal: "[每季度目标]"

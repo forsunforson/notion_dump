@@ -1,4 +1,4 @@
-# Notion Dump
+# ChronoFold
 
 A robust tool to export Notion pages to Markdown with support for incremental sync, "Link to Page" blocks, AI-powered content observation, and Telegram notifications.
 
@@ -18,8 +18,8 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-repo/notion-dump.git
-    cd notion-dump
+    git clone https://github.com/your-repo/chronofold.git
+    cd chronofold
     ```
 
 2.  Install dependencies:
@@ -42,7 +42,7 @@ A robust tool to export Notion pages to Markdown with support for incremental sy
     # Git Backup Configuration (Optional)
     GIT_REMOTE_URL=git@github.com:your-user/your-backup-repo.git
     GIT_BRANCH=main
-    GIT_USER_NAME=Notion Backup Bot
+    GIT_USER_NAME=ChronoFold Backup Bot
     GIT_USER_EMAIL=bot@example.com
     
     # Telegram Configuration (Optional)
@@ -166,13 +166,13 @@ You can schedule different jobs using cron:
 
 ```bash
 # Morning routine at 8:00 AM every day
-0 8 * * * cd /path/to/notion-dump && python main.py --job morning
+0 8 * * * cd /path/to/chronofold && python main.py --job morning
 
 # Weekly review at 9:00 AM every Monday
-0 9 * * 1 cd /path/to/notion-dump && python main.py --job weekly
+0 9 * * 1 cd /path/to/chronofold && python main.py --job weekly
 
 # Sync every hour
-0 * * * * cd /path/to/notion-dump && python main.py --job sync
+0 * * * * cd /path/to/chronofold && python main.py --job sync
 ```
 
 For more details, check [deploy/README.md](deploy/README.md).

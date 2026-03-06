@@ -213,6 +213,8 @@ notion_blocks_dump.json
 database.json
 .notion-dump-state.json
 notion-dump-history.jsonl
+.chronofold-state.json
+chronofold-history.jsonl
 logs/
 _reports/
 notion_output/

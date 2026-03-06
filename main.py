@@ -154,7 +154,7 @@ def _parse_yyyy_mm_dd(date_str: str) -> datetime.date:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Notion Dump - AI-powered knowledge management assistant",
+        description="ChronoFold - AI-powered knowledge management assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

@@ -1,4 +1,4 @@
-# Notion Dump System Context
+# ChronoFold System Context
 
 ## 1. 系统宏观架构 (System Architecture)
 
@@ -24,7 +24,7 @@
 -   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务。
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
--   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.notion-dump-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
+-   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
 -   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 Upsert 到 `notion_output/metrics.jsonl`。
 -   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_socratic_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
 -   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
@@ -143,7 +143,7 @@ custom_traits:
 
 2.  **同步机制 (Sync Strategy)**:
     -   采用 **Incremental Sync** (增量同步)，仅拉取 `last_edited_time > last_sync_time` 的页面。
-    -   状态文件 `.notion-dump-state.json` 是唯一的事实来源 (Source of Truth)。
+    -   状态文件 `.chronofold-state.json` 是唯一的事实来源 (Source of Truth)。
 
 3.  **数据备份 (Data Resilience)**:
     -   采用 **Stateful Sync** (状态同步) 策略备份到 Rclone。

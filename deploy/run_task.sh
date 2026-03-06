@@ -18,8 +18,8 @@ fi
 LOG_FILE="$LOG_DIR/execution.log"
 
 # Rclone Configuration
-RCLONE_REMOTE="gdrive:notion-dump-backup"
-BACKUP_FILES=(".notion-dump-state.json" "notion-dump-history.jsonl" ".env" "config/profile.yaml")
+RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:chronofold-backup}"
+BACKUP_FILES=(".chronofold-state.json" "chronofold-history.jsonl" ".notion-dump-state.json" "notion-dump-history.jsonl" ".env" "config/profile.yaml")
 BACKUP_DIRS=("config/templates")
 
 # Parse --job parameter for logging
@@ -123,7 +123,7 @@ run_task() {
 }
 
 # Use PID file for locking (works on both Linux and macOS without flock)
-LOCK_FILE="$LOG_DIR/notion_dump.pid"
+LOCK_FILE="$LOG_DIR/chronofold.pid"
 
 if [ -f "$LOCK_FILE" ]; then
     PID=$(cat "$LOCK_FILE")

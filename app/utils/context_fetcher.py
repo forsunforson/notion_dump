@@ -19,7 +19,9 @@ class ContextFetcher:
         self.metrics_file = self.project_root / "notion_output" / "metrics.jsonl"
         self.reports_dir = self.project_root / "_reports"
         self.notion_output_dir = self.project_root / "notion_output"
-        self.history_file = self.project_root / "notion-dump-history.jsonl"
+        self.history_file = self.project_root / "chronofold-history.jsonl"
+        self.legacy_history_file = self.project_root / "notion-dump-history.jsonl"
+        self.history_files = [self.history_file, self.legacy_history_file]
 
     @staticmethod
     def parse_frontmatter(content: str) -> dict:
@@ -322,7 +324,7 @@ class ContextFetcher:
         return "\n\n".join(workout_logs)
     
     def get_history_from_last_n_days(self, days: int = 7) -> str:
-        if not self.history_file.exists():
+        if not any(p.exists() for p in self.history_files):
             return ""
         
         profile = self.get_profile()
@@ -340,18 +342,21 @@ class ContextFetcher:
         
         entries = []
         try:
-            with open(self.history_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                        timestamp = entry.get("timestamp", "")
-                        if timestamp >= cutoff_str:
-                            entries.append(entry)
-                    except json.JSONDecodeError:
-                        continue
+            for history_path in self.history_files:
+                if not history_path.exists():
+                    continue
+                with open(history_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                            timestamp = entry.get("timestamp", "")
+                            if timestamp >= cutoff_str:
+                                entries.append(entry)
+                        except json.JSONDecodeError:
+                            continue
         except Exception as e:
             logger.error(f"Error reading history file: {e}")
             return ""
@@ -360,6 +365,7 @@ class ContextFetcher:
             return ""
         
         summary_parts = []
+        entries = sorted(entries, key=lambda e: e.get("timestamp", ""))
         for entry in entries[-10:]:
             timestamp = entry.get("timestamp", "Unknown")
             stats = entry.get("stats", {})
