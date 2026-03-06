@@ -45,7 +45,16 @@ class ContextFetcher:
         
         try:
             with open(self.profile_file, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
+                data = yaml.safe_load(f) or {}
+            if not isinstance(data, dict):
+                logger.error("Profile file root is not a mapping")
+                return {}
+            custom_traits = data.get("custom_traits")
+            if custom_traits is None:
+                data["custom_traits"] = {}
+            elif not isinstance(custom_traits, dict):
+                data["custom_traits"] = {}
+            return data
         except Exception as e:
             logger.error(f"Error reading profile file: {e}")
             return {}

@@ -14,6 +14,7 @@
     - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
         - **零摩擦碎片捕获 (Quick Dump)**: 通过 `quick_dump_skill.save_reflection_record` 将用户原话写入 Notion Inbox 数据库（`NOTION_INBOX_DATABASE_ID`），作为下一次 `SyncNotionJob` 的摄取入口，保持 Notion 作为 Source of Truth。
+        - **动态画像演进 (Profile Evolution)**: 通过 `update_profile_skill.update_profile_attribute` 修改 `config/profile.yaml` 的可演进字段，并将每次变更追加写入 `notion_output/profile_changelog.jsonl` 作为审计与认知演化日志。
 
 ## 2. 核心模块拓扑 (Module Topology)
 
@@ -32,6 +33,7 @@
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
 -   **`quick_dump_skill.py`**: Quick Dump 技能。提供 `save_reflection_record` 工具：一旦用户进行自我记录/回答灵魂拷问/表达感悟/倾诉/灵感/日记，必须调用该工具把原话写入 Notion Inbox；内置短窗口去重，避免重复落库。
+-   **`update_profile_skill.py`**: Profile 动态更新技能。提供 `update_profile_attribute(yaml_path, new_value, reason, category)`：使用点语法定位并更新画像字段；对静态锁定字段强制拒绝；写回后追加审计日志到 `profile_changelog.jsonl`。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
@@ -101,7 +103,7 @@ status: "Done"
 ```
 
 ### 用户画像 (`config/profile.yaml`)
-系统的静态知识库，用于控制 AI 的人设和回答策略。
+系统的画像与偏好单一事实来源（Source of Truth），用于控制 AI 的认知基调与回答策略；其中一部分字段允许在 Telegram 对话中随时演进。
 ```yaml
 name: "User Name"
 physical_baseline:
@@ -111,6 +113,25 @@ physical_baseline:
 preferences:
   timezone: "Asia/Shanghai"  # 核心时区配置
   language: "zh-CN"
+
+# ---------------------------------------------------------
+# 动态特征与认知补丁区 (由 AI 自动维护)
+# ---------------------------------------------------------
+custom_traits:
+  # anti_procrastination_trigger: "面对复杂配置容易陷入情绪内耗"
+```
+
+### Profile 演化日志 (`notion_output/profile_changelog.jsonl`)
+每次通过 `update_profile_attribute` 成功写回 `profile.yaml` 后，必须追加一条 JSONL 记录（UTC 时间戳），用于追踪用户目标、偏好与认知的演变过程。
+```json
+{
+  "timestamp": "2026-03-06T12:00:00Z",
+  "yaml_path": "recent_focus.weekly_goal",
+  "old_value": "搞定本地模型部署",
+  "new_value": "去徒步，远离电子屏幕",
+  "reason": "用户意识到过度关注技术细节导致精力崩溃",
+  "source": "Telegram Bot"
+}
 ```
 
 ## 4. 关键演进约定 (Evolution Rules)
@@ -134,3 +155,9 @@ preferences:
     -   **Structured Output**: 指标抽取任务必须强制要求 JSON 格式输出，以保证下游数据处理的稳定性。
     -   **Action Boundaries (动作边界)**: Agent 仅允许通过 `app/skills/` 目录下的明确定义的函数执行副作用操作（如文件写入）。所有写操作必须具备幂等性（Idempotency），防止重复调用导致数据污染。
     -   **Tool Use (工具调用)**: 考虑到大模型（如 Gemini Flash）存在“口头答应（Action Hallucination）”的惰性，System Prompt 中必须包含强烈的执行约束（如：“绝对禁止口头答应，必须且只能调用工具”），以强制 LLM 走 Tool Calling 链路，确保数据的真实落地。
+
+5.  **Profile 读写权限与升级 (Profile Evolution Policy)**:
+    -   **静态锁定区（不可修改）**: `name`, `personal_info.birth_date`, `gender`, `height`, `timezone`。AI 无权改动，任何写入请求必须拒绝。
+    -   **高频迭代区（随时覆写）**: `recent_focus.*`, `recent_focus.current_projects`。
+    -   **认知演进区（按需覆写）**: `investment_philosophy`, `physical_baseline.primary_goals`, `preferences.*`。
+    -   **动态特征区（Append-Only / 自由扩展）**: `custom_traits.*`。用于存放用户在对话中临时提出的新规矩/习惯/触发器；当用户只是“查询/核对当前信息”时，不应触发任何写操作或落库。

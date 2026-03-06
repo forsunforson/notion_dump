@@ -16,6 +16,17 @@
     * `balance_sheet_structure`, `investment_philosophy`
 * **短期工作内存 (Short-term Working Memory)**: 周期性变动，用于对齐当前的执行上下文。
     * `recent_focus`
+* **动态特征区 (Custom Traits / Append-Only)**: 用户在对话中随口提出的新规矩/新习惯/触发器，用于即时增强上下文记忆。
+    * `custom_traits`
+
+## 2.1 读写权限与演进策略 (Read/Write Policy)
+
+在对话式更新画像时，必须遵守以下权限边界：
+
+* **静态锁定区（不可修改）**: `name`, `personal_info.birth_date`, `gender`, `height`, `timezone`
+* **高频迭代区（随时覆写）**: `recent_focus.*`, `recent_focus.current_projects`
+* **认知演进区（按需覆写）**: `investment_philosophy`, `physical_baseline.primary_goals`, `preferences.*`
+* **动态特征区（Append-Only / 自由扩展）**: `custom_traits.*`（仅追加/扩展，不应做“覆盖式清空”）
 
 ## 3. 初始化最佳实践与模板 (Initialization Template)
 
@@ -103,3 +114,14 @@ recent_focus:
   monthly_goal: "[每月目标]"
   quarterly_goal: "[每季度目标]"
   yearly_goal: "[每年目标]"
+
+# ---------------------------------------------------------
+# 动态特征与认知补丁区 (由 AI 自动维护 / Append-Only)
+# ---------------------------------------------------------
+custom_traits:
+  # anti_procrastination_trigger: "面对复杂配置容易陷入情绪内耗"
+```
+
+## 4. 画像变更审计 (Changelog)
+
+当系统通过工具写回 `profile.yaml` 时，必须在 `notion_output/profile_changelog.jsonl` 追加一条 JSONL 记录，用于追踪用户认知与偏好的演化（时间戳必须是 UTC）。

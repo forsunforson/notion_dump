@@ -3,12 +3,14 @@ import logging
 import datetime
 import re
 from zoneinfo import ZoneInfo
+import yaml
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from app.services.llm_service import LLMService
 from app.utils.context_fetcher import ContextFetcher
 from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 from app.skills.quick_dump_skill import QUICK_DUMP_SKILL_SCHEMA, save_reflection_record
+from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_profile_attribute
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,9 @@ class TelegramBotRunner:
             # Fetch user profile for context
             profile = self.fetcher.get_profile()
             user_name = profile.get("name", user_name)
-            primary_goals = profile.get("goals", "improve productivity and health")
+            physical_baseline = profile.get("physical_baseline", {}) if isinstance(profile.get("physical_baseline", {}), dict) else {}
+            primary_goals = physical_baseline.get("primary_goals", "improve productivity and health")
+            custom_traits = profile.get("custom_traits", {}) if isinstance(profile.get("custom_traits", {}), dict) else {}
             
             # Get current time based on user's timezone preference
             preferences = profile.get("preferences", {})
@@ -75,20 +79,26 @@ class TelegramBotRunner:
 
             system_prompt = "\n".join(
                 [
-                    f"你是一个认知与时间的折叠引擎。用户的名字是 {user_name}，核心目标是 {primary_goals}。",
+                    f"你是一个伴随用户共同进化的赛博外脑，也是认知与时间的折叠引擎。用户的名字是 {user_name}，核心目标是 {primary_goals}。",
                     f"今天是 {today_str} ({timezone_str} {time_str})。",
+                    "",
+                    "用户自定义特质 (custom_traits):",
+                    (yaml.safe_dump(custom_traits, allow_unicode=True, sort_keys=False).strip() if custom_traits else "{}"),
                     "",
                     "无论用户是简短碎碎念，还是对你提出的『灵魂拷问』进行了长篇大论的回答，未经反思的原始输入都是最宝贵的数据。",
                     "",
                     "【绝对强制命令：工具调用】",
                     "1) 一旦检测到用户在进行自我记录、回答反思问题、表达个人感悟、倾诉情绪、记录灵感或日记，你必须且只能立即调用 save_reflection_record，将用户原话一字不落地保存。",
                     "2) 当用户提供或修改任何健康数据（体重、精力、睡眠、训练打分等）时，你必须且只能立即调用 upsert_daily_metric 来记录。",
-                    "3) 如果同一条消息同时包含“指标数据”和“自我记录/感悟”，你必须依次调用两个工具，禁止遗漏。",
-                    "4) 绝对禁止口头答应。在未调用工具前，不允许回复“收到/已记录/好的”等文字。",
+                    "3) 当用户明确表示要更改目标/重心/偏好/理念/项目，或要求你记住一个新规矩/新习惯/新特质时，你必须主动调用 update_profile_attribute，并在 reason 中精准概括底层动机。若是全新特质，必须写入 custom_traits.xxx。",
+                    "4) 如果同一条消息同时包含多类信息（指标数据、记录/感悟、Profile 变更），你必须依次调用相关工具，禁止遗漏。",
+                    "5) 绝对禁止口头答应。在未调用工具前，不允许回复“收到/已记录/好的”等文字。",
+                    "【例外：信息确认不应触发记录】如果用户只是查询或核对当前 Profile 信息（例如“我的终极目标是什么/当前项目有哪些/我的偏好设置是什么”），不要调用任何工具（尤其不要 save_reflection_record），直接回答即可。",
                     "【上下文捕获强制要求】：当你调用 save_reflection_record 时，必须检视对话历史。如果用户是在明确回答你之前抛出的某个问题（特别是周期回顾中的『灵魂拷问』），或者用户 Reply 了某条特定的消息，你必须将那个【原始问题的内容】完整提取出来，并填入 context_question 参数中。绝不允许只记录回答而丢失问题背景。",
                     "",
                     "【回复风格】",
                     "当 save_reflection_record 调用成功后，你只需要用极简、冷峻的语气回复：已刻录。或者基于用户的回答继续进行下一次更深度的苏格拉底追问。",
+                    "当 update_profile_attribute 调用成功后，你只需要用一句极简确认回复，例如：底层代码已重写：旧目标作废，新的焦点已对齐。",
                 ]
             ).strip()
 
@@ -118,6 +128,11 @@ class TelegramBotRunner:
                 s = (text or "").strip()
                 if len(s) < 12:
                     return False
+                if re.search(r"[?？]", s):
+                    if not re.search(r"(记录|保存|写下来|刻录|备忘|日记|日志|灵感|反思|倾诉)", s):
+                        if re.search(r"(我的|当前|现在|请问|帮我|告诉我|查询|确认|是什么|有哪些|多少|怎么)", s):
+                            if re.search(r"(终极目标|目标|偏好|项目|投资理念|训练|基线|时区|profile|Profile)", s, re.IGNORECASE):
+                                return False
                 if "\n" in s:
                     return True
                 if re.search(r"(我|今天|刚刚|突然|感觉|觉得|想|反思|记录|日记|灵感|情绪|内耗)", s):
@@ -126,7 +141,7 @@ class TelegramBotRunner:
                     return True
                 return False
 
-            executed = {"save_reflection_record": 0, "upsert_daily_metric": 0}
+            executed = {"save_reflection_record": 0, "upsert_daily_metric": 0, "update_profile_attribute": 0}
 
             def wrapped_save_reflection_record(
                 content: str,
@@ -146,10 +161,15 @@ class TelegramBotRunner:
                 executed["upsert_daily_metric"] += 1
                 return upsert_daily_metric(**kwargs)
 
-            tools = [METRICS_SKILL_SCHEMA, QUICK_DUMP_SKILL_SCHEMA]
+            def wrapped_update_profile_attribute(**kwargs) -> str:
+                executed["update_profile_attribute"] += 1
+                return update_profile_attribute(**kwargs)
+
+            tools = [METRICS_SKILL_SCHEMA, QUICK_DUMP_SKILL_SCHEMA, UPDATE_PROFILE_SKILL_SCHEMA]
             tool_map = {
                 "upsert_daily_metric": wrapped_upsert_daily_metric,
                 "save_reflection_record": wrapped_save_reflection_record,
+                "update_profile_attribute": wrapped_update_profile_attribute,
             }
 
             chat_id = update.effective_chat.id
@@ -158,7 +178,7 @@ class TelegramBotRunner:
 
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
-            if executed["save_reflection_record"] == 0 and should_quick_dump(user_text, bool(reply_to_text)):
+            if sum(executed.values()) == 0 and should_quick_dump(user_text, bool(reply_to_text)):
                 wrapped_save_reflection_record(
                     content=user_text,
                     category=categorize(user_text, bool(reply_to_text)),
