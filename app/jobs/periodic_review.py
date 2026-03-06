@@ -97,8 +97,11 @@ class PeriodicReviewJob:
         notes_content = self._format_notes_content(diary_entries)
         metrics_trend = self._format_metrics_trend(metrics, start_date=start_date, end_date=end_date)
 
-        messages = self.prompt_manager.build_socratic_review_prompt(
-            profile=profile_text, metrics_trend=metrics_trend, notes_content=notes_content
+        messages = self.prompt_manager.build_review_prompt(
+            review_type=self.review_type,
+            profile=profile_text,
+            metrics_trend=metrics_trend,
+            notes_content=notes_content,
         )
         system_prompt = messages[0]["content"]
         user_prompt = messages[1]["content"]
@@ -123,14 +126,24 @@ class PeriodicReviewJob:
         report_md = (report_md or "").strip()
 
         if not report_md:
-            report_md = (
-                "## 1. 冰冷的镜像 (The Objective Mirror)\n"
-                "LLM 不可用或返回为空。\n\n"
-                "## 2. 偏离警告 (The Guardian's Alert)\n"
-                "LLM 不可用或返回为空。\n\n"
-                "## 3. 灵魂拷问 (Socratic Questions)\n"
-                "1. 你真正想从这次回顾中得到什么？\n"
-            ).strip()
+            if self.review_type == "daily":
+                report_md = (
+                    "## ☕ 昨日浓缩 (Daily Espresso)\n"
+                    "LLM 不可用或返回为空。\n\n"
+                    "## 🎯 赛博搭子的 Vibe Check\n"
+                    "LLM 不可用或返回为空。\n\n"
+                    "## 💡 今日一闪 (Today's Spark)\n"
+                    "今天如果只能做一件让“明天的你”更爽的事，你会选哪一件？\n"
+                ).strip()
+            else:
+                report_md = (
+                    "## 1. 冰冷的镜像 (The Objective Mirror)\n"
+                    "LLM 不可用或返回为空。\n\n"
+                    "## 2. 偏离警告 (The Guardian's Alert)\n"
+                    "LLM 不可用或返回为空。\n\n"
+                    "## 3. 灵魂拷问 (Socratic Questions)\n"
+                    "1. 你真正想从这次回顾中得到什么？\n"
+                ).strip()
 
         out_path.write_text(report_md + "\n", encoding="utf-8")
         return report_md

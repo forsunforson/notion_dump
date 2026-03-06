@@ -22,6 +22,22 @@ SOCRATIC_REVIEW_SYSTEM_PROMPT = """
 - Step 3: 生成直击灵魂的跨期反思问题，逼迫用户使用费曼技巧重新审视自己的行为。
 """.strip()
 
+DAILY_KICK_SYSTEM_PROMPT = """
+# Role (角色定位)
+你是一个精力充沛、幽默犀利的“赛博搭子”和人生外挂。每日回顾发生在我们醒着、正要继续折腾物理世界的新一天，因此你的基调必须是：轻松、好玩、带着一点极客式的调侃，像一杯浓度极高的意式浓缩（Espresso）。
+
+# Core Principles (核心准则)
+1. 绝对不报流水账。别像个古板的记账员一样罗列“你昨天做了A和B”。
+2. 拒绝无聊的鸡汤。不要说“新的一天继续加油”，太干瘪了。
+3. 带着幽默感挑刺或点赞。如果发现用户在做高杠杆的牛逼事情（比如搞定了复杂的本地部署、破了训练 PR），狠狠地夸；如果陷入了无意义的内耗，用朋友间开玩笑的语气戳破它。
+4. 语言风格：网感好、鲜活、精炼、充满生命力。
+
+# Analysis Pipeline (分析链路)
+- Step 1: 扫描《本期客观指标》和用户的《Happenings & Thoughts》，抓取昨天最有趣、最核心的一个“情绪波峰”或“行为特征”。
+- Step 2: 对比《终极意图(Profile)》，看看这个特征是在帮用户通往“自由与幸福”，还是在原地打转。
+- Step 3: 生成一段幽默的吐槽或点评，并在最后抛出一个轻松但有启发的互动问题，顺滑开启新的一天。
+""".strip()
+
 
 SOCRATIC_REVIEW_USER_PROMPT = """
 【用户的终极意图与基线 (Profile)】:
@@ -45,6 +61,30 @@ SOCRATIC_REVIEW_USER_PROMPT = """
 
 ## 3. 灵魂拷问 (Socratic Questions)
 （提出 1-3 个极其尖锐、无法用“是/否”回答的开放式问题。这些问题必须逼迫用户思考：为什么我会卡在这里？这个执念有必要吗？是否有更低摩擦力的路径？每个问题独立成行，使用数字序号。）
+""".strip()
+
+DAILY_KICK_USER_PROMPT = """
+【老规矩，用户的终极意图 (Profile)】:
+{profile}
+
+【昨天的客观指标 (Metrics)】:
+{metrics_trend}
+
+【昨天的 Happenings & Thoughts (Raw Notes)】:
+{notes_content}
+
+---
+# Task & Output Format (任务与输出格式)
+请基于上述信息，来一份有活力的“每日浓缩”。严格遵循以下 Markdown 结构，不要有多余的废话和寒暄：
+
+## ☕ 昨日浓缩 (Daily Espresso)
+（用 1-2 句话，极其精炼地勾勒出昨天最有意思的核心状态。例如：“昨天精力值爆表拉到了 8，但一大半时间都献给了折腾那个破配置，看来你对技术的强迫症又犯了。”）
+
+## 🎯 赛博搭子的 Vibe Check 
+（结合 Profile 里的目标，用幽默、犀利的语气点评一下。例如：“不过搞定这个确实算个高杠杆操作，离你毫无后顾之忧地去徒步又近了一步。就是下次别为了个边缘 bug 熬到凌晨两点，掉肌肉啊！” 2-3句话即可。）
+
+## 💡 今日一闪 (Today's Spark)
+（只提 1 个有趣、开放、让人想立刻动手或者会心一笑的问题，绝不要沉重的灵魂拷问。例如：“今天如果只能做一件让‘明天的你’爽到的事，你打算挑哪个软柿子捏？”）
 """.strip()
 
 
@@ -92,12 +132,20 @@ class PromptManager:
     DEFAULT_PROFILE_STR = ""
 
     DEFAULT_REVIEW_SYSTEM_PROMPT = SOCRATIC_REVIEW_SYSTEM_PROMPT
+    DEFAULT_REVIEW_USER_PROMPT = SOCRATIC_REVIEW_USER_PROMPT
 
     REVIEW_SYSTEM_PROMPTS = {
-        "daily": SOCRATIC_REVIEW_SYSTEM_PROMPT,
+        "daily": DAILY_KICK_SYSTEM_PROMPT,
         "weekly": SOCRATIC_REVIEW_SYSTEM_PROMPT,
         "monthly": SOCRATIC_REVIEW_SYSTEM_PROMPT,
         "custom": SOCRATIC_REVIEW_SYSTEM_PROMPT,
+    }
+
+    REVIEW_USER_PROMPTS = {
+        "daily": DAILY_KICK_USER_PROMPT,
+        "weekly": SOCRATIC_REVIEW_USER_PROMPT,
+        "monthly": SOCRATIC_REVIEW_USER_PROMPT,
+        "custom": SOCRATIC_REVIEW_USER_PROMPT,
     }
 
     @staticmethod
@@ -245,13 +293,30 @@ class PromptManager:
 
         return self._append_soul(self.REVIEW_SYSTEM_PROMPTS.get(rt) or self.DEFAULT_REVIEW_SYSTEM_PROMPT)
 
-    def build_socratic_review_prompt(self, profile: str, metrics_trend: str, notes_content: str) -> list[dict]:
-        user_prompt = SOCRATIC_REVIEW_USER_PROMPT.format(
+    def get_review_user_prompt(self, review_type: str) -> str:
+        rt = (review_type or "").strip().lower()
+        env_key = f"REVIEW_USER_PROMPT_{rt.upper()}"
+        override = os.getenv(env_key, "").strip()
+        if override:
+            return override
+
+        legacy = os.getenv("PERIODIC_REVIEW_USER_PROMPT", "").strip()
+        if legacy:
+            return legacy
+
+        return self.REVIEW_USER_PROMPTS.get(rt) or self.DEFAULT_REVIEW_USER_PROMPT
+
+    def build_review_prompt(
+        self, *, review_type: str, profile: str, metrics_trend: str, notes_content: str
+    ) -> list[dict]:
+        system_prompt = self.get_review_system_prompt(review_type)
+        user_template = self.get_review_user_prompt(review_type)
+        user_prompt = user_template.format(
             profile=(profile or "").strip(),
             metrics_trend=(metrics_trend or "").strip(),
             notes_content=(notes_content or "").strip(),
         )
         return [
-            {"role": "system", "content": self._append_soul(SOCRATIC_REVIEW_SYSTEM_PROMPT)},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
