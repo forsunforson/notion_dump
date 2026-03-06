@@ -1,12 +1,110 @@
 import os
 import json
 import logging
+import inspect
 import time
 from pathlib import Path
 import urllib.request
+from typing import Any
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _prune_nones(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if v is None:
+                continue
+            out[k] = _prune_nones(v)
+        return out
+    if isinstance(obj, list):
+        return [_prune_nones(x) for x in obj if x is not None]
+    return obj
+
+
+def _sanitize_message(m: Any) -> dict | None:
+    if not isinstance(m, dict):
+        return None
+    role = m.get("role")
+    if role in ("system", "user"):
+        return {"role": role, "content": "" if m.get("content") is None else str(m.get("content"))}
+    if role == "assistant":
+        out: dict[str, Any] = {"role": "assistant"}
+        out["content"] = "" if m.get("content") is None else m.get("content")
+        if m.get("tool_calls") is not None:
+            out["tool_calls"] = m.get("tool_calls")
+        return out
+    if role == "tool":
+        out: dict[str, Any] = {
+            "role": "tool",
+            "content": "" if m.get("content") is None else str(m.get("content")),
+        }
+        if m.get("tool_call_id") is not None:
+            out["tool_call_id"] = m.get("tool_call_id")
+        if m.get("name") is not None:
+            out["name"] = m.get("name")
+        return out
+    return {"role": "user", "content": "" if m.get("content") is None else str(m.get("content"))}
+
+
+def _summarize_msg(m: Any) -> dict[str, Any]:
+    if not isinstance(m, dict):
+        return {"is_dict": False, "type": type(m).__name__}
+    c = m.get("content")
+    tool_calls = m.get("tool_calls")
+    return {
+        "is_dict": True,
+        "role": m.get("role"),
+        "keys": sorted(list(m.keys())),
+        "content_is_none": c is None,
+        "content_type": type(c).__name__,
+        "content_len": len(c) if isinstance(c, str) else 0,
+        "has_tool_calls": tool_calls is not None,
+        "tool_calls_type": type(tool_calls).__name__,
+        "tool_call_id_present": "tool_call_id" in m,
+        "name_present": "name" in m,
+    }
+
+
+class _TraeDebugLogger:
+    def __init__(self, *, base_url: str, model: str, tool_choice: str | dict):
+        self.base_url = base_url
+        self.model = model
+        self.tool_choice = tool_choice
+        self._url = (os.getenv("TRAE_DEBUG_API_URL") or "").strip()
+        self._session = (os.getenv("TRAE_DEBUG_SESSION_ID") or "ask-tools").strip()
+        self._outdir = (os.getenv("TRAE_DEBUG_LOG_DIR") or ".dbg").strip()
+        self._seq = 0
+
+    def emit(self, name: str, payload: dict[str, Any]) -> None:
+        self._seq += 1
+        event = {
+            "sessionId": self._session,
+            "name": name,
+            "seq": self._seq,
+            "ts": int(time.time() * 1000),
+            "payload": payload,
+        }
+        try:
+            if self._url:
+                data = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                req = urllib.request.Request(
+                    self._url,
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=2).read()
+            else:
+                outdir = Path(os.getcwd()) / self._outdir
+                outdir.mkdir(parents=True, exist_ok=True)
+                outpath = outdir / f"trae-debug-log-{self._session}.ndjson"
+                with open(outpath, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception:
+            return
 
 
 class LLMService:
@@ -101,107 +199,86 @@ class LLMService:
         logger.info(f"[LLM Request] Model: {self.model} (with tools, messages)")
 
         tool_calls_executed = 0
-        def _prune_nones(obj: object) -> object:
-            if isinstance(obj, dict):
-                out: dict = {}
-                for k, v in obj.items():
-                    if v is None:
-                        continue
-                    out[k] = _prune_nones(v)
-                return out
-            if isinstance(obj, list):
-                return [_prune_nones(x) for x in obj if x is not None]
-            return obj
+        local_messages: list[dict] = [m for m in (_sanitize_message(x) for x in (messages or [])) if m is not None]
+        dbg = _TraeDebugLogger(base_url=self.base_url, model=self.model, tool_choice=tool_choice)
 
-        def sanitize_message(m: object) -> dict | None:
-            if not isinstance(m, dict):
-                return None
-            role = m.get("role")
-            if role in ("system", "user"):
-                return {"role": role, "content": "" if m.get("content") is None else str(m.get("content"))}
-            if role == "assistant":
-                out: dict = {"role": "assistant"}
-                out["content"] = "" if m.get("content") is None else m.get("content")
-                if m.get("tool_calls") is not None:
-                    out["tool_calls"] = m.get("tool_calls")
-                return out
-            if role == "tool":
-                out = {
-                    "role": "tool",
-                    "content": "" if m.get("content") is None else str(m.get("content")),
-                }
-                if m.get("tool_call_id") is not None:
-                    out["tool_call_id"] = m.get("tool_call_id")
-                if m.get("name") is not None:
-                    out["name"] = m.get("name")
-                return out
-            return {"role": "user", "content": "" if m.get("content") is None else str(m.get("content"))}
-
-        local_messages: list[dict] = [m for m in (sanitize_message(x) for x in (messages or [])) if m is not None]
-        #region debug-point
-        dbg_url = (os.getenv("TRAE_DEBUG_API_URL") or "").strip()
-        dbg_session = (os.getenv("TRAE_DEBUG_SESSION_ID") or "ask-tools").strip()
-        dbg_outdir = (os.getenv("TRAE_DEBUG_LOG_DIR") or ".dbg").strip()
-        dbg_seq = 0
-
-        def dbg_event(name: str, payload: dict):
-            nonlocal dbg_seq
-            dbg_seq += 1
-            event = {
-                "sessionId": dbg_session,
-                "name": name,
-                "seq": dbg_seq,
-                "ts": int(time.time() * 1000),
-                "payload": payload,
-            }
+        def tool_call_payload(tc: Any) -> dict[str, Any]:
             try:
-                if dbg_url:
-                    data = json.dumps(event, ensure_ascii=False).encode("utf-8")
-                    req = urllib.request.Request(
-                        dbg_url,
-                        data=data,
-                        headers={"Content-Type": "application/json"},
-                        method="POST",
-                    )
-                    urllib.request.urlopen(req, timeout=2).read()
-                else:
-                    outdir = Path(os.getcwd()) / dbg_outdir
-                    outdir.mkdir(parents=True, exist_ok=True)
-                    outpath = outdir / f"trae-debug-log-{dbg_session}.ndjson"
-                    with open(outpath, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+                return _prune_nones(tc.model_dump())
             except Exception:
-                return
+                return _prune_nones(
+                    {
+                        "id": getattr(tc, "id", None),
+                        "type": getattr(tc, "type", None),
+                        "function": {
+                            "name": getattr(getattr(tc, "function", None), "name", None),
+                            "arguments": getattr(getattr(tc, "function", None), "arguments", None),
+                        },
+                    }
+                )
 
-        def summarize_msg(m: object) -> dict:
-            if not isinstance(m, dict):
-                return {"is_dict": False, "type": type(m).__name__}
-            c = m.get("content")
-            tool_calls = m.get("tool_calls")
-            return {
-                "is_dict": True,
-                "role": m.get("role"),
-                "keys": sorted(list(m.keys())),
-                "content_is_none": c is None,
-                "content_type": type(c).__name__,
-                "content_len": len(c) if isinstance(c, str) else 0,
-                "has_tool_calls": tool_calls is not None,
-                "tool_calls_type": type(tool_calls).__name__,
-                "tool_call_id_present": "tool_call_id" in m,
-                "name_present": "name" in m,
-            }
-        #endregion debug-point
+        async def execute_tool_call(tool_call: Any) -> tuple[dict[str, Any], bool]:
+            function_name = tool_call.function.name
+            raw_args = tool_call.function.arguments
+            try:
+                function_args = json.loads(raw_args) if raw_args else {}
+            except Exception as e:
+                return (
+                    {
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": f"Error: Invalid tool arguments JSON: {str(e)}",
+                    },
+                    False,
+                )
+
+            logger.info(f"Executing tool: {function_name} with arg keys: {sorted(list(function_args.keys()))}")
+            tool_function = tool_map.get(function_name)
+            if tool_function is None:
+                return (
+                    {
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": f"Error: Tool {function_name} not found.",
+                    },
+                    False,
+                )
+
+            try:
+                result = tool_function(**function_args)
+                if inspect.isawaitable(result):
+                    result = await result
+                return (
+                    {
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": str(result),
+                    },
+                    True,
+                )
+            except Exception as e:
+                return (
+                    {
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": f"Error executing tool: {str(e)}",
+                    },
+                    False,
+                )
 
         try:
             while True:
-                #region debug-point
-                tail = [summarize_msg(m) for m in local_messages[-12:]]
+                tail = [_summarize_msg(m) for m in local_messages[-12:]]
                 null_content_idxs = [
                     i for i, m in enumerate(local_messages)
                     if isinstance(m, dict) and m.get("content") is None
                 ]
                 non_dict_idxs = [i for i, m in enumerate(local_messages) if not isinstance(m, dict)]
-                dbg_event(
+                dbg.emit(
                     "llm.tools.request",
                     {
                         "base_url": self.base_url,
@@ -214,7 +291,6 @@ class LLMService:
                         "tail": tail,
                     },
                 )
-                #endregion debug-point
                 response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=local_messages,
@@ -223,8 +299,7 @@ class LLMService:
                 )
 
                 message = response.choices[0].message
-                #region debug-point
-                dbg_event(
+                dbg.emit(
                     "llm.tools.response_meta",
                     {
                         "assistant_content_is_none": message.content is None,
@@ -232,13 +307,11 @@ class LLMService:
                         "tool_calls_count": len(message.tool_calls or []) if message.tool_calls else 0,
                     },
                 )
-                #endregion debug-point
                 if message.tool_calls:
-                    #region debug-point
                     try:
                         tc0 = (message.tool_calls or [])[0]
                         tc0_dump = tc0.model_dump() if tc0 else {}
-                        dbg_event(
+                        dbg.emit(
                             "llm.tools.tool_call_shape",
                             {
                                 "tc0_keys": sorted(list((tc0_dump or {}).keys())),
@@ -253,26 +326,9 @@ class LLMService:
                         )
                     except Exception:
                         pass
-                    #endregion debug-point
-                    tool_calls_payload: list[dict] = []
-                    for tc in (message.tool_calls or []):
-                        try:
-                            tool_calls_payload.append(_prune_nones(tc.model_dump()))
-                        except Exception:
-                            tool_calls_payload.append(
-                                _prune_nones(
-                                    {
-                                        "id": getattr(tc, "id", None),
-                                        "type": getattr(tc, "type", None),
-                                        "function": {
-                                            "name": tc.function.name,
-                                            "arguments": tc.function.arguments,
-                                        },
-                                    }
-                                )
-                            )
+                    tool_calls_payload = [tool_call_payload(tc) for tc in (message.tool_calls or [])]
                     local_messages.append(
-                        sanitize_message(
+                        _sanitize_message(
                             {
                                 "role": "assistant",
                                 "content": "" if message.content is None else message.content,
@@ -283,64 +339,34 @@ class LLMService:
                     )
                 else:
                     local_messages.append(
-                        sanitize_message({"role": "assistant", "content": "" if message.content is None else message.content})
+                        _sanitize_message({"role": "assistant", "content": "" if message.content is None else message.content})
                         or {"role": "assistant", "content": ""}
                     )
 
                 if message.tool_calls:
-                    #region debug-point
-                    dbg_event(
+                    dbg.emit(
                         "llm.tools.tool_calls",
                         {
                             "count": len(message.tool_calls or []),
                             "assistant_content_is_none": message.content is None,
                         },
                     )
-                    #endregion debug-point
                     for tool_call in message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
-                        logger.info(f"Executing tool: {function_name} with args: {function_args}")
-
-                        if function_name in tool_map:
-                            tool_function = tool_map[function_name]
-                            try:
-                                function_response = tool_function(**function_args)
-                                tool_calls_executed += 1
-                            except Exception as e:
-                                function_response = f"Error executing tool: {str(e)}"
-
-                            local_messages.append(
-                                {
-                                    "tool_call_id": tool_call.id,
-                                    "role": "tool",
-                                    "name": function_name,
-                                    "content": str(function_response),
-                                }
-                            )
-                        else:
-                            local_messages.append(
-                                {
-                                    "tool_call_id": tool_call.id,
-                                    "role": "tool",
-                                    "name": function_name,
-                                    "content": f"Error: Tool {function_name} not found.",
-                                }
-                            )
+                        tool_msg, executed = await execute_tool_call(tool_call)
+                        if executed:
+                            tool_calls_executed += 1
+                        local_messages.append(tool_msg)
                 else:
                     content = message.content or ""
-                    #region debug-point
-                    dbg_event(
+                    dbg.emit(
                         "llm.tools.final",
                         {"tool_calls_executed": tool_calls_executed, "content_len": len(content)},
                     )
-                    #endregion debug-point
                     logger.info(f"[LLM Response] {content[:2000]}...")
                     return content, tool_calls_executed
         except Exception as e:
             logger.error(f"Error in ask_with_tools_messages: {e}")
-            #region debug-point
-            dbg_event(
+            dbg.emit(
                 "llm.tools.error",
                 {
                     "error_type": type(e).__name__,
@@ -348,8 +374,7 @@ class LLMService:
                     "status_code": getattr(e, "status_code", None),
                     "body": getattr(e, "body", None),
                     "messages_len": len(local_messages),
-                    "tail": [summarize_msg(m) for m in local_messages[-12:]],
+                    "tail": [_summarize_msg(m) for m in local_messages[-12:]],
                 },
             )
-            #endregion debug-point
             return "Sorry, I encountered an error while processing your request with tools.", tool_calls_executed
