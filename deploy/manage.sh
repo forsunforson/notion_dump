@@ -6,6 +6,30 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="$PROJECT_ROOT/logs/execution.log"
 LOGS_DIR="$PROJECT_ROOT/logs"
 
+DEBUG_STATE_FILE_DEFAULT="$PROJECT_ROOT/logs/debug_state.json"
+DEBUG_STATE_FILE="${LOCAL_DEBUG_STATE_PATH:-$DEBUG_STATE_FILE_DEFAULT}"
+DEBUG_TOGGLE=""
+for arg in "$@"; do
+    case "$arg" in
+        --debug-enable) DEBUG_TOGGLE="enable" ;;
+        --debug-disable) DEBUG_TOGGLE="disable" ;;
+    esac
+done
+if [ -n "$DEBUG_TOGGLE" ]; then
+    mkdir -p "$(dirname "$DEBUG_STATE_FILE")"
+    if [ "$DEBUG_TOGGLE" = "enable" ]; then
+        ENABLED_VALUE="true"
+    else
+        ENABLED_VALUE="false"
+    fi
+    cat > "$DEBUG_STATE_FILE" <<EOF
+{"enabled": $ENABLED_VALUE, "updated_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"}
+EOF
+    echo "✅ Debug mode updated: $ENABLED_VALUE"
+    echo "State file: $DEBUG_STATE_FILE"
+    exit 0
+fi
+
 # Get current system timezone
 if command -v timedatectl &> /dev/null; then
     USER_TZ=$(timedatectl show --property=Timezone --value)

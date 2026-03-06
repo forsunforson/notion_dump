@@ -2,11 +2,10 @@ import os
 import json
 import logging
 import inspect
-import time
-from pathlib import Path
-import urllib.request
 from typing import Any
 from openai import AsyncOpenAI
+
+from app.utils.local_debug_logger import LocalDebugLogger
 
 logger = logging.getLogger(__name__)
 
@@ -66,45 +65,6 @@ def _summarize_msg(m: Any) -> dict[str, Any]:
         "tool_call_id_present": "tool_call_id" in m,
         "name_present": "name" in m,
     }
-
-
-class _TraeDebugLogger:
-    def __init__(self, *, base_url: str, model: str, tool_choice: str | dict):
-        self.base_url = base_url
-        self.model = model
-        self.tool_choice = tool_choice
-        self._url = (os.getenv("TRAE_DEBUG_API_URL") or "").strip()
-        self._session = (os.getenv("TRAE_DEBUG_SESSION_ID") or "ask-tools").strip()
-        self._outdir = (os.getenv("TRAE_DEBUG_LOG_DIR") or ".dbg").strip()
-        self._seq = 0
-
-    def emit(self, name: str, payload: dict[str, Any]) -> None:
-        self._seq += 1
-        event = {
-            "sessionId": self._session,
-            "name": name,
-            "seq": self._seq,
-            "ts": int(time.time() * 1000),
-            "payload": payload,
-        }
-        try:
-            if self._url:
-                data = json.dumps(event, ensure_ascii=False).encode("utf-8")
-                req = urllib.request.Request(
-                    self._url,
-                    data=data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=2).read()
-            else:
-                outdir = Path(os.getcwd()) / self._outdir
-                outdir.mkdir(parents=True, exist_ok=True)
-                outpath = outdir / f"trae-debug-log-{self._session}.ndjson"
-                with open(outpath, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(event, ensure_ascii=False) + "\n")
-        except Exception:
-            return
 
 
 class LLMService:
@@ -200,7 +160,7 @@ class LLMService:
 
         tool_calls_executed = 0
         local_messages: list[dict] = [m for m in (_sanitize_message(x) for x in (messages or [])) if m is not None]
-        dbg = _TraeDebugLogger(base_url=self.base_url, model=self.model, tool_choice=tool_choice)
+        dbg = LocalDebugLogger(session_id=(os.getenv("LOCAL_DEBUG_SESSION_ID") or os.getenv("TRAE_DEBUG_SESSION_ID") or "ask-tools"))
 
         def tool_call_payload(tc: Any) -> dict[str, Any]:
             try:
