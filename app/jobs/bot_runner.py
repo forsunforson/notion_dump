@@ -123,9 +123,15 @@ class TelegramBotRunner:
                 return "reflection"
 
             def should_quick_dump(text: str, is_reply: bool) -> bool:
-                if is_reply:
-                    return True
                 s = (text or "").strip()
+                if is_reply:
+                    if re.search(r"(修改|更新|改成|设为|设置|同步到|保存为|把.*改成|将.*改为)", s):
+                        if re.search(r"(目标|项目|偏好|理念|投资|训练|基线|时区|profile|Profile|custom_traits)", s, re.IGNORECASE):
+                            return False
+                    if re.search(r"[?？]", s):
+                        if re.search(r"(终极目标|目标|偏好|项目|投资理念|训练|基线|时区|profile|Profile)", s, re.IGNORECASE):
+                            return False
+                    return True
                 if len(s) < 12:
                     return False
                 if re.search(r"[?？]", s):
@@ -178,14 +184,40 @@ class TelegramBotRunner:
 
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
-            if sum(executed.values()) == 0 and should_quick_dump(user_text, bool(reply_to_text)):
-                wrapped_save_reflection_record(
-                    content=user_text,
-                    category=categorize(user_text, bool(reply_to_text)),
-                    source="Telegram",
-                    context_question=reply_to_text or "",
-                )
-                reply_text = "已刻录"
+            if sum(executed.values()) == 0:
+                s = (user_text or "").strip()
+                if reply_to_text and re.search(r"(修改|更新|改成|设为|设置|同步到|保存为|把.*改成|将.*改为)", s):
+                    if re.search(r"(年度|yearly)", s, re.IGNORECASE):
+                        yaml_path = "recent_focus.yearly_goal"
+                    elif re.search(r"(季度|quarterly)", s, re.IGNORECASE):
+                        yaml_path = "recent_focus.quarterly_goal"
+                    elif re.search(r"(每月|月度|monthly)", s, re.IGNORECASE):
+                        yaml_path = "recent_focus.monthly_goal"
+                    elif re.search(r"(每周|周度|weekly)", s, re.IGNORECASE):
+                        yaml_path = "recent_focus.weekly_goal"
+                    else:
+                        yaml_path = ""
+                    if yaml_path:
+                        m = re.search(r"(核心目标是|终极目标是|终极目标：|核心目标：)\s*(.+)", reply_to_text.strip())
+                        inferred_value = (m.group(2).strip() if m else reply_to_text.strip())
+                        result = wrapped_update_profile_attribute(
+                            yaml_path=yaml_path,
+                            new_value=inferred_value,
+                            reason="用户希望将已确认的目标同步为长期周期目标，以便后续回顾与执行对齐。",
+                            category="update",
+                        )
+                        if isinstance(result, str) and result.startswith("OK:"):
+                            reply_text = "底层代码已重写：年度目标已对齐。"
+                        else:
+                            reply_text = result or "Error updating profile."
+                if not reply_text and should_quick_dump(user_text, bool(reply_to_text)):
+                    wrapped_save_reflection_record(
+                        content=user_text,
+                        category=categorize(user_text, bool(reply_to_text)),
+                        source="Telegram",
+                        context_question=reply_to_text or "",
+                    )
+                    reply_text = "已刻录"
 
             new_history = [*history, {"role": "user", "content": user_text}, {"role": "assistant", "content": reply_text or ""}]
             self._history_by_chat[chat_id] = new_history[-20:]
