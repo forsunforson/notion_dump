@@ -11,10 +11,9 @@ from app.services.notion_service import NotionService
 QuickDumpCategory = Literal["reflection", "idea", "vent", "journal"]
 
 
-def save_reflection_record(content: str, category: str = "reflection", source: str = "Telegram") -> dict:
+def save_reflection_record(content: str, category: QuickDumpCategory = "reflection", source: str = "Telegram") -> str:
     if content is None or not str(content).strip():
-        # 修改点 1：返回字典而不是字符串
-        return {"status": "error", "message": "Error: empty content."}
+        return "Error: empty content."
 
     project_root = Path(os.getcwd())
     state_path = project_root / "notion_output" / "quick_dump_dedupe.json"
@@ -36,11 +35,7 @@ def save_reflection_record(content: str, category: str = "reflection", source: s
                 existing_dt = datetime.datetime.fromisoformat(existing_ts.replace("Z", "+00:00"))
                 now_dt = datetime.datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
                 if (now_dt - existing_dt).total_seconds() <= 600:
-                    # 修改点 2：返回字典
-                    return {
-                        "status": "success", 
-                        "message": f"记录已成功存入大脑（去重命中），时间戳：{existing_ts}"
-                    }
+                    return f"记录已成功存入大脑（去重命中），时间戳：{existing_ts}"
             except Exception:
                 pass
 
@@ -60,21 +55,10 @@ def save_reflection_record(content: str, category: str = "reflection", source: s
 
         suffix = url or page_id
         if suffix:
-            # 修改点 3：返回字典
-            return {
-                "status": "success", 
-                "message": f"记录已成功存入大脑，时间戳：{captured_at}，Notion：{suffix}"
-            }
-        
-        # 修改点 4：返回字典
-        return {
-            "status": "success", 
-            "message": f"记录已成功存入大脑，时间戳：{captured_at}"
-        }
-        
+            return f"记录已成功存入大脑，时间戳：{captured_at}，Notion：{suffix}"
+        return f"记录已成功存入大脑，时间戳：{captured_at}"
     except Exception as e:
-        # 修改点 5：返回字典
-        return {"status": "error", "message": f"Error saving record: {str(e)}"}
+        return f"Error saving record: {str(e)}"
 
 
 QUICK_DUMP_SKILL_SCHEMA = {
