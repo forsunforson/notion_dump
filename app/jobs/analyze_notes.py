@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 import datetime
@@ -6,6 +5,7 @@ from pathlib import Path
 from app.services.prompt_manager import PromptManager
 from app.services.llm_service import LLMService
 from app.utils.context_fetcher import ContextFetcher
+from app.core.paths import output_dir
 
 
 class AnalyzeNotesJob:
@@ -29,13 +29,12 @@ class AnalyzeNotesJob:
         if not valid_results:
             return
 
-        project_root = Path(os.getcwd())
         for item in valid_results:
             filename = item.get("filename")
             date_localized = item.get("date_localized")
             analysis = item.get("analysis", {})
             if isinstance(analysis, dict):
-                self._process_daily_metrics(analysis, project_root, filename, date_localized)
+                self._process_daily_metrics(analysis, filename, date_localized)
 
     async def _extract_metrics_one_file_safe(self, file_path, sem):
         async with sem:
@@ -102,7 +101,7 @@ JSON 结构：
             "analysis": analysis_dict
         }
     
-    def _process_daily_metrics(self, analysis: dict, project_root: Path, filename: str = None, date_localized: str = None):
+    def _process_daily_metrics(self, analysis: dict, filename: str = None, date_localized: str = None):
         metrics = analysis.get("daily_metrics")
         if not metrics or not isinstance(metrics, dict):
             return
@@ -122,7 +121,7 @@ JSON 结构：
         metrics["source"] = source
         metrics["timestamp"] = timestamp_utc
         
-        metrics_path = project_root / "notion_output" / "metrics.jsonl"
+        metrics_path = output_dir() / "metrics.jsonl"
         try:
             metrics_path.parent.mkdir(parents=True, exist_ok=True)
             

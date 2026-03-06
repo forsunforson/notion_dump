@@ -7,14 +7,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import yaml
 
+from app.core.paths import output_dir as _output_dir, reports_dir as _reports_dir
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.utils.context_fetcher import ContextFetcher
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = "notion_output"
-REPORTS_DIR = "_reports"
+OUTPUT_DIR = _output_dir()
+REPORTS_DIR = _reports_dir()
 METRICS_FILENAME = "metrics.jsonl"
 
 LOCAL_TIMEZONE = "Asia/Shanghai"
@@ -88,9 +89,8 @@ class PeriodicReviewJob:
         metrics = self._load_metrics_in_range(start_date=start_date, end_date=end_date)
         logger.info(f"Selected {len(metrics)} metrics rows in range.")
 
-        reports_dir = Path(REPORTS_DIR)
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        out_path = reports_dir / f"{self.review_type}_{end_date.isoformat()}.md"
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = REPORTS_DIR / f"{self.review_type}_{end_date.isoformat()}.md"
         self.output_path = out_path
 
         profile_text = self.prompt_manager.load_profile()
@@ -175,11 +175,10 @@ class PeriodicReviewJob:
         return start_date, end_date
 
     def _list_markdown_files(self) -> list[Path]:
-        output_dir = Path(OUTPUT_DIR)
-        if not output_dir.exists():
-            logger.warning(f"Output directory not found: {output_dir}")
+        if not OUTPUT_DIR.exists():
+            logger.warning(f"Output directory not found: {OUTPUT_DIR}")
             return []
-        return list(output_dir.glob("**/*.md"))
+        return list(OUTPUT_DIR.glob("**/*.md"))
 
     def _parse_frontmatter(self, content: str) -> tuple[dict, str]:
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
@@ -265,7 +264,7 @@ class PeriodicReviewJob:
         return "\n".join(parts).strip() + "\n"
 
     def _load_metrics_in_range(self, start_date: datetime.date, end_date: datetime.date) -> list[dict]:
-        metrics_path = Path(OUTPUT_DIR) / METRICS_FILENAME
+        metrics_path = OUTPUT_DIR / METRICS_FILENAME
         if not metrics_path.exists():
             return []
 

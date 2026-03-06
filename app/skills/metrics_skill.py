@@ -1,8 +1,9 @@
 import json
 import datetime
-import os
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+from app.core.paths import output_dir
 
 def upsert_daily_metric(
     date: str,
@@ -63,8 +64,7 @@ def upsert_daily_metric(
         if not has_actual_data:
             return "No metrics provided to update."
 
-        project_root = Path(os.getcwd())
-        metrics_path = project_root / "notion_output" / "metrics.jsonl"
+        metrics_path = output_dir() / "metrics.jsonl"
         
         metrics_path.parent.mkdir(parents=True, exist_ok=True)
         

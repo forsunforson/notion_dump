@@ -9,22 +9,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+from app.core.paths import project_root, output_dir
 from app.services.notion_service import NotionService
 from app.utils.notion_converter import NotionToMarkdown, NotionMapper
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = "notion_output"
-STATE_FILE = ".chronofold-state.json"
-LEGACY_STATE_FILE = ".notion-dump-state.json"
-HISTORY_FILE = "chronofold-history.jsonl"
-LEGACY_HISTORY_FILE = "notion-dump-history.jsonl"
+PROJECT_ROOT = project_root()
+OUTPUT_DIR = output_dir()
+STATE_FILE = PROJECT_ROOT / ".chronofold-state.json"
+LEGACY_STATE_FILE = PROJECT_ROOT / ".notion-dump-state.json"
+HISTORY_FILE = PROJECT_ROOT / "chronofold-history.jsonl"
+LEGACY_HISTORY_FILE = PROJECT_ROOT / "notion-dump-history.jsonl"
 
 
 class SyncNotionJob:
     def __init__(self):
         self.notion_api = NotionService()
-        self.converter = NotionToMarkdown(self.notion_api.get_client(), OUTPUT_DIR)
+        self.converter = NotionToMarkdown(self.notion_api.get_client(), str(OUTPUT_DIR))
         self.processed_count = 0
     
     @staticmethod
@@ -60,8 +62,8 @@ class SyncNotionJob:
     @staticmethod
     def load_state() -> Optional[str]:
         """Load the last sync time from state file."""
-        state_path = STATE_FILE if os.path.exists(STATE_FILE) else LEGACY_STATE_FILE
-        if os.path.exists(state_path):
+        state_path = STATE_FILE if STATE_FILE.exists() else LEGACY_STATE_FILE
+        if state_path.exists():
             try:
                 with open(state_path, "r") as f:
                     state = json.load(f)
@@ -234,7 +236,7 @@ class SyncNotionJob:
         """
         Perform incremental sync using Notion Search API.
         """
-        root_output_path = Path(OUTPUT_DIR)
+        root_output_path = OUTPUT_DIR
         current_run_start_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
         last_sync_time = self.load_state()

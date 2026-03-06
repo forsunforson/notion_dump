@@ -7,6 +7,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import yaml
 
+from app.core.paths import project_root, config_dir, output_dir, reports_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,11 +16,11 @@ class ContextFetcher:
     DAILY_ENTRY_TITLE = "Daily Entry"
 
     def __init__(self):
-        self.project_root = Path(os.getcwd())
-        self.profile_file = self.project_root / "config" / "profile.yaml"
-        self.metrics_file = self.project_root / "notion_output" / "metrics.jsonl"
-        self.reports_dir = self.project_root / "_reports"
-        self.notion_output_dir = self.project_root / "notion_output"
+        self.project_root = project_root()
+        self.profile_file = Path(os.getenv("PROFILE_YAML_PATH") or (config_dir() / "profile.yaml"))
+        self.metrics_file = output_dir() / "metrics.jsonl"
+        self.reports_dir = reports_dir()
+        self.notion_output_dir = output_dir()
         self.history_file = self.project_root / "chronofold-history.jsonl"
         self.legacy_history_file = self.project_root / "notion-dump-history.jsonl"
         self.history_files = [self.history_file, self.legacy_history_file]

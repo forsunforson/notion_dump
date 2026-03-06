@@ -8,11 +8,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
+from app.core.paths import output_dir as _output_dir
+
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = "notion_output"
+OUTPUT_DIR = str(_output_dir())
 
 
 async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_analyze: bool = False):

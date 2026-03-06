@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from app.core.paths import output_dir
 from app.services.notion_service import NotionService
 
 
@@ -26,8 +27,7 @@ def save_reflection_record(
     if content is None or not str(content).strip():
         return "Error: empty content."
 
-    project_root = Path(os.getcwd())
-    state_path = project_root / "notion_output" / "quick_dump_dedupe.json"
+    state_path = output_dir() / "quick_dump_dedupe.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
     captured_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

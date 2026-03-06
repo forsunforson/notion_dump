@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any, Literal
  
 import yaml
+
+from app.core.paths import project_root as _project_root, output_dir
  
  
 UpdateProfileCategory = Literal["update", "add"]
@@ -48,9 +50,9 @@ def update_profile_attribute(
     if _is_static_locked_path(target_path):
         return f"Error: static field is locked and cannot be modified: {target_path}"
  
-    project_root = Path(os.getcwd())
-    profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (project_root / "config" / "profile.yaml"))
-    changelog_path = project_root / "notion_output" / "profile_changelog.jsonl"
+    root = _project_root()
+    profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (root / "config" / "profile.yaml"))
+    changelog_path = output_dir() / "profile_changelog.jsonl"
  
     if not profile_path.exists():
         return f"Error: profile.yaml not found: {profile_path}"
