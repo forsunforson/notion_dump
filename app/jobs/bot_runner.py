@@ -122,30 +122,42 @@ class TelegramBotRunner:
                     return "vent"
                 return "reflection"
 
-            def should_quick_dump(text: str, is_reply: bool) -> bool:
-                s = (text or "").strip()
-                if is_reply:
-                    if re.search(r"(修改|更新|改成|设为|设置|同步到|保存为|把.*改成|将.*改为)", s):
-                        if re.search(r"(目标|项目|偏好|理念|投资|训练|基线|时区|profile|Profile|custom_traits)", s, re.IGNORECASE):
-                            return False
-                    if re.search(r"[?？]", s):
-                        if re.search(r"(终极目标|目标|偏好|项目|投资理念|训练|基线|时区|profile|Profile)", s, re.IGNORECASE):
-                            return False
-                    return True
-                if len(s) < 12:
-                    return False
-                if re.search(r"[?？]", s):
-                    if not re.search(r"(记录|保存|写下来|刻录|备忘|日记|日志|灵感|反思|倾诉)", s):
-                        if re.search(r"(我的|当前|现在|请问|帮我|告诉我|查询|确认|是什么|有哪些|多少|怎么)", s):
-                            if re.search(r"(终极目标|目标|偏好|项目|投资理念|训练|基线|时区|profile|Profile)", s, re.IGNORECASE):
-                                return False
-                if "\n" in s:
-                    return True
-                if re.search(r"(我|今天|刚刚|突然|感觉|觉得|想|反思|记录|日记|灵感|情绪|内耗)", s):
-                    return True
-                if len(s) >= 80:
-                    return True
-                return False
+            async def infer_fallback_action(user_msg: str, reply_msg: str) -> dict:
+                system_p = "\n".join(
+                    [
+                        "你是一个严格的意图路由器，只输出 JSON。",
+                        "你的任务是判断：本轮用户输入在工具未被调用时，是否需要强制调用某个工具，或直接回答。",
+                        "",
+                        "可选意图 intent:",
+                        "- profile_update: 用户在变更目标/重心/偏好/理念/项目，或新增 custom_traits。",
+                        "- quick_dump: 用户在记录/倾诉/反思/日记/灵感，需要保存原话到 Notion Inbox。",
+                        "- query: 用户只是查询/核对信息，不应触发任何写操作。",
+                        "- none: 其他情况，不做任何兜底动作。",
+                        "",
+                        "如果 intent=profile_update，必须给出 profile_update 对象：",
+                        "{yaml_path, new_value, reason, category}。",
+                        "",
+                        "yaml_path 约束：只能写入这些区域：",
+                        "- recent_focus.weekly_goal/monthly_goal/quarterly_goal/yearly_goal/current_projects",
+                        "- investment_philosophy",
+                        "- physical_baseline.primary_goals",
+                        "- preferences.<any>",
+                        "- custom_traits.<any>",
+                        "",
+                        "严禁写入：name, personal_info.birth_date, gender, height, timezone。",
+                        "",
+                        "如果用户在 reply_to_message 上说“把这个目标改为年度目标/季度/每月/每周”，允许从 reply_to_message 中抽取目标文本作为 new_value。",
+                        "reason 必须用一句话概括用户底层动机。",
+                    ]
+                ).strip()
+                user_p = "\n\n".join(
+                    [
+                        f"<reply_to_message>\n{reply_msg or ''}\n</reply_to_message>",
+                        f"<user_message>\n{user_msg or ''}\n</user_message>",
+                    ]
+                ).strip()
+                out = await self.llm.ask_json(system_p, user_p)
+                return out if isinstance(out, dict) else {}
 
             executed = {"save_reflection_record": 0, "upsert_daily_metric": 0, "update_profile_attribute": 0}
 
@@ -185,32 +197,26 @@ class TelegramBotRunner:
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
             if sum(executed.values()) == 0:
-                s = (user_text or "").strip()
-                if reply_to_text and re.search(r"(修改|更新|改成|设为|设置|同步到|保存为|把.*改成|将.*改为)", s):
-                    if re.search(r"(年度|yearly)", s, re.IGNORECASE):
-                        yaml_path = "recent_focus.yearly_goal"
-                    elif re.search(r"(季度|quarterly)", s, re.IGNORECASE):
-                        yaml_path = "recent_focus.quarterly_goal"
-                    elif re.search(r"(每月|月度|monthly)", s, re.IGNORECASE):
-                        yaml_path = "recent_focus.monthly_goal"
-                    elif re.search(r"(每周|周度|weekly)", s, re.IGNORECASE):
-                        yaml_path = "recent_focus.weekly_goal"
-                    else:
-                        yaml_path = ""
-                    if yaml_path:
-                        m = re.search(r"(核心目标是|终极目标是|终极目标：|核心目标：)\s*(.+)", reply_to_text.strip())
-                        inferred_value = (m.group(2).strip() if m else reply_to_text.strip())
+                fallback = await infer_fallback_action(user_text, reply_to_text)
+                intent = (fallback.get("intent") or "").strip()
+                if intent == "profile_update" and isinstance(fallback.get("profile_update"), dict):
+                    pu = fallback.get("profile_update") or {}
+                    yaml_path = pu.get("yaml_path")
+                    new_value = pu.get("new_value")
+                    reason = pu.get("reason")
+                    category = pu.get("category") or "update"
+                    if isinstance(yaml_path, str) and yaml_path.strip() and reason is not None:
                         result = wrapped_update_profile_attribute(
-                            yaml_path=yaml_path,
-                            new_value=inferred_value,
-                            reason="用户希望将已确认的目标同步为长期周期目标，以便后续回顾与执行对齐。",
-                            category="update",
+                            yaml_path=yaml_path.strip(),
+                            new_value=new_value,
+                            reason=str(reason),
+                            category=str(category),
                         )
                         if isinstance(result, str) and result.startswith("OK:"):
-                            reply_text = "底层代码已重写：年度目标已对齐。"
+                            reply_text = "底层代码已重写：目标与偏好已对齐。"
                         else:
                             reply_text = result or "Error updating profile."
-                if not reply_text and should_quick_dump(user_text, bool(reply_to_text)):
+                elif intent == "quick_dump":
                     wrapped_save_reflection_record(
                         content=user_text,
                         category=categorize(user_text, bool(reply_to_text)),
