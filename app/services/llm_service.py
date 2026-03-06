@@ -101,7 +101,31 @@ class LLMService:
         logger.info(f"[LLM Request] Model: {self.model} (with tools, messages)")
 
         tool_calls_executed = 0
-        local_messages: list[dict] = list(messages)
+        def sanitize_message(m: object) -> dict | None:
+            if not isinstance(m, dict):
+                return None
+            role = m.get("role")
+            if role in ("system", "user"):
+                return {"role": role, "content": "" if m.get("content") is None else str(m.get("content"))}
+            if role == "assistant":
+                out: dict = {"role": "assistant"}
+                out["content"] = "" if m.get("content") is None else m.get("content")
+                if m.get("tool_calls") is not None:
+                    out["tool_calls"] = m.get("tool_calls")
+                return out
+            if role == "tool":
+                out = {
+                    "role": "tool",
+                    "content": "" if m.get("content") is None else str(m.get("content")),
+                }
+                if m.get("tool_call_id") is not None:
+                    out["tool_call_id"] = m.get("tool_call_id")
+                if m.get("name") is not None:
+                    out["name"] = m.get("name")
+                return out
+            return {"role": "user", "content": "" if m.get("content") is None else str(m.get("content"))}
+
+        local_messages: list[dict] = [m for m in (sanitize_message(x) for x in (messages or [])) if m is not None]
         #region debug-point
         dbg_url = (os.getenv("TRAE_DEBUG_API_URL") or "").strip()
         dbg_session = (os.getenv("TRAE_DEBUG_SESSION_ID") or "ask-tools").strip()
@@ -197,10 +221,32 @@ class LLMService:
                     },
                 )
                 #endregion debug-point
-                try:
-                    local_messages.append(message.model_dump())
-                except Exception:
-                    local_messages.append({"role": "assistant", "content": message.content})
+                if message.tool_calls:
+                    local_messages.append(
+                        sanitize_message(
+                            {
+                                "role": "assistant",
+                                "content": "" if message.content is None else message.content,
+                                "tool_calls": [
+                                    {
+                                        "id": tc.id,
+                                        "type": tc.type,
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments,
+                                        },
+                                    }
+                                    for tc in (message.tool_calls or [])
+                                ],
+                            }
+                        )
+                        or {"role": "assistant", "content": ""}
+                    )
+                else:
+                    local_messages.append(
+                        sanitize_message({"role": "assistant", "content": "" if message.content is None else message.content})
+                        or {"role": "assistant", "content": ""}
+                    )
 
                 if message.tool_calls:
                     #region debug-point
