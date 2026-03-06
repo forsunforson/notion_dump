@@ -94,7 +94,7 @@ class LLMService:
         """
         logger.info(f"[LLM Request] Model: {self.model} (with tools)")
         
-        messages = [
+        messages: list[dict] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
@@ -111,7 +111,10 @@ class LLMService:
                 message = response.choices[0].message
                 
                 # Append assistant's message to conversation history
-                messages.append(message)
+                try:
+                    messages.append(message.model_dump())
+                except Exception:
+                    messages.append({"role": "assistant", "content": message.content})
                 
                 if message.tool_calls:
                     logger.info(f"[LLM Tool Call] {len(message.tool_calls)} tools called")
@@ -155,3 +158,69 @@ class LLMService:
         except Exception as e:
             logger.error(f"Error in ask_with_tools: {e}")
             return "Sorry, I encountered an error while processing your request with tools."
+
+    async def ask_with_tools_messages(
+        self,
+        messages: list[dict],
+        tools: list,
+        tool_map: dict,
+        tool_choice: str | dict = "auto",
+    ) -> tuple[str, int]:
+        logger.info(f"[LLM Request] Model: {self.model} (with tools, messages)")
+
+        tool_calls_executed = 0
+        local_messages: list[dict] = list(messages)
+
+        try:
+            while True:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=local_messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                )
+
+                message = response.choices[0].message
+                try:
+                    local_messages.append(message.model_dump())
+                except Exception:
+                    local_messages.append({"role": "assistant", "content": message.content})
+
+                if message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        logger.info(f"Executing tool: {function_name} with args: {function_args}")
+
+                        if function_name in tool_map:
+                            tool_function = tool_map[function_name]
+                            try:
+                                function_response = tool_function(**function_args)
+                                tool_calls_executed += 1
+                            except Exception as e:
+                                function_response = f"Error executing tool: {str(e)}"
+
+                            local_messages.append(
+                                {
+                                    "tool_call_id": tool_call.id,
+                                    "role": "tool",
+                                    "name": function_name,
+                                    "content": str(function_response),
+                                }
+                            )
+                        else:
+                            local_messages.append(
+                                {
+                                    "tool_call_id": tool_call.id,
+                                    "role": "tool",
+                                    "name": function_name,
+                                    "content": f"Error: Tool {function_name} not found.",
+                                }
+                            )
+                else:
+                    content = message.content or ""
+                    logger.info(f"[LLM Response] {content[:2000]}...")
+                    return content, tool_calls_executed
+        except Exception as e:
+            logger.error(f"Error in ask_with_tools_messages: {e}")
+            return "Sorry, I encountered an error while processing your request with tools.", tool_calls_executed

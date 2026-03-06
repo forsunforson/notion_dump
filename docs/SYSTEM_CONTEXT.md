@@ -11,7 +11,9 @@
 4.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
 5.  **Interact (交互)**:
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，调用统一回顾引擎生成 `daily/weekly` 回顾 Markdown，并通过 Telegram 推送。
-    - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力，可执行本地函数（如记录体重、心情等），提供个性化问答服务。
+    - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
+        - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
+        - **零摩擦碎片捕获 (Quick Dump)**: 通过 `quick_dump_skill.save_reflection_record` 将用户原话写入 Notion Inbox 数据库（`NOTION_INBOX_DATABASE_ID`），作为下一次 `SyncNotionJob` 的摄取入口，保持 Notion 作为 Source of Truth。
 
 ## 2. 核心模块拓扑 (Module Topology)
 
@@ -29,9 +31,10 @@
 
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
+-   **`quick_dump_skill.py`**: Quick Dump 技能。提供 `save_reflection_record` 工具：一旦用户进行自我记录/回答灵魂拷问/表达感悟/倾诉/灵感/日记，必须调用该工具把原话写入 Notion Inbox；内置短窗口去重，避免重复落库。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
--   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑。
+-   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。仅负责单向发送 (Send Message)。
 -   **`prompt_manager.py`**: 提示词工程管理。维护“苏格拉底回顾” System/User Prompt（`SOCRATIC_REVIEW_SYSTEM_PROMPT` / `SOCRATIC_REVIEW_USER_PROMPT`），并提供 `build_socratic_review_prompt(profile, metrics_trend, notes_content)` 生成 messages；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
@@ -75,6 +78,12 @@ status: "Done"
 
 ## 3. 灵魂拷问 (Socratic Questions)
 ```
+
+### Quick Dump Inbox（Notion Inbox Database）
+用于承接 Telegram 的“碎片捕获”和“灵魂拷问回复”，保证 Notion 是唯一事实来源（Source of Truth）。
+- 写入：`TelegramBotRunner` 通过 `quick_dump_skill.save_reflection_record` → `NotionService.append_to_inbox` 创建 Page
+- 同步：`SyncNotionJob` 在下一轮增量同步时拉取该 Page 并落盘为 `notion_output/*.md`
+- 配置：通过环境变量 `NOTION_INBOX_DATABASE_ID` 指定目标数据库
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)

@@ -121,17 +121,22 @@ class ContextFetcher:
     def get_latest_report(self) -> str:
         if not self.reports_dir.exists():
             return ""
-        
-        report_files = sorted(self.reports_dir.glob("report_*.md"), reverse=True)
+
+        report_files = sorted(
+            self.reports_dir.glob("*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if not report_files:
             return ""
-        
+
+        report_file = report_files[0]
         try:
-            with open(report_files[0], "r", encoding="utf-8") as f:
-                content = f.read(4000)
+            with open(report_file, "r", encoding="utf-8") as f:
+                content = f.read(6000)
                 return self.localize_text_timestamps(content)
         except Exception as e:
-            logger.error(f"Error reading report {report_files[0]}: {e}")
+            logger.error(f"Error reading report {report_file}: {e}")
             return ""
     
     def get_reports_from_last_n_days(self, days: int = 7) -> str:
@@ -150,11 +155,16 @@ class ContextFetcher:
         cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
         
-        report_files = sorted(self.reports_dir.glob("report_*.md"), reverse=True)
+        report_files = sorted(
+            self.reports_dir.glob("*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         valid_reports = []
         
         for report_file in report_files:
-            date_str = report_file.stem.replace("report_", "")
+            m = re.search(r"\d{4}-\d{2}-\d{2}", report_file.stem)
+            date_str = m.group(0) if m else report_file.stem
             if date_str >= cutoff_str:
                 try:
                     with open(report_file, "r", encoding="utf-8") as f:
