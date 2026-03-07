@@ -2,10 +2,7 @@ import os
 import logging
 import asyncio
 import datetime
-from pathlib import Path
 from typing import Optional, List, Dict, Any
-from zoneinfo import ZoneInfo
-import yaml
 from notion_client import Client
 
 logger = logging.getLogger(__name__)
@@ -265,36 +262,6 @@ class NotionService:
     def _utc_now_iso() -> str:
         return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    def _get_local_date_str(self) -> str:
-        try:
-            profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (Path(__file__).parent.parent.parent / "config" / "profile.yaml"))
-            if profile_path.exists():
-                profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-                tz_name = profile.get("preferences", {}).get("timezone", "Asia/Shanghai")
-            else:
-                tz_name = "Asia/Shanghai"
-        except Exception:
-            tz_name = "Asia/Shanghai"
-
-        tz = ZoneInfo(tz_name)
-        local_now = datetime.datetime.now(tz)
-        return local_now.strftime("%Y-%m-%d")
-
-    def _get_local_datetime_str(self) -> str:
-        try:
-            profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (Path(__file__).parent.parent.parent / "config" / "profile.yaml"))
-            if profile_path.exists():
-                profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-                tz_name = profile.get("preferences", {}).get("timezone", "Asia/Shanghai")
-            else:
-                tz_name = "Asia/Shanghai"
-        except Exception:
-            tz_name = "Asia/Shanghai"
-
-        tz = ZoneInfo(tz_name)
-        local_now = datetime.datetime.now(tz)
-        return local_now.strftime("%Y-%m-%d %H:%M:%S")
-
     @staticmethod
     def _build_rich_text(content: str) -> list[dict]:
         return [{"type": "text", "text": {"content": content}}]
@@ -414,137 +381,6 @@ class NotionService:
             children=children,
         )
         return {"page_id": page.get("id"), "url": page.get("url"), "captured_at": captured_at}
-
-    def append_to_daily_inbox(
-        self,
-        content: str,
-        source: str = "Telegram",
-        category: str = "reflection",
-        context_question: str = "",
-    ) -> dict:
-        database_id = (os.getenv("NOTION_INBOX_DATABASE_ID") or "").strip()
-        if not database_id:
-            raise ValueError("NOTION_INBOX_DATABASE_ID environment variable is not set")
-
-        local_date = self._get_local_date_str()
-        local_datetime = self._get_local_datetime_str()
-        page_title = f"{local_date} 碎片记录"
-
-        title_prop_name = self._resolve_title_property_name(database_id)
-        db = self.client.databases.retrieve(database_id=database_id)
-        props_schema = (db.get("properties", {}) or {})
-        if not props_schema and (db.get("data_sources") or []):
-            ds_id = (db.get("data_sources") or [{}])[0].get("id")
-            if ds_id:
-                ds_obj = self.client.request(path=f"data_sources/{ds_id}", method="GET")
-                props_schema = (ds_obj.get("properties", {}) or {})
-
-        page_id = None
-        page_url = None
-
-        try:
-            filter_params = {
-                "property": title_prop_name,
-                "title": {"contains": local_date}
-            }
-            results = asyncio.run(self.query_database(database_id, filter_params))
-            for page in results:
-                props = page.get("properties", {})
-                title_prop = props.get(title_prop_name) or props.get("title")
-                if title_prop and "title" in title_prop:
-                    title_text = "".join([t["plain_text"] for t in title_prop["title"]])
-                    if local_date in title_text:
-                        page_id = page.get("id")
-                        page_url = page.get("url")
-                        logger.info(f"Found existing daily page for {local_date}: {page_id}")
-                        break
-        except Exception as e:
-            logger.warning(f"Error searching for daily page: {e}")
-
-        if not page_id:
-            try:
-                captured_at = self._utc_now_iso()
-                properties: dict[str, Any] = {
-                    title_prop_name: {"title": self._build_rich_text(page_title)}
-                }
-
-                def maybe_set_property(prop_candidates: list[str], prop_value_builder):
-                    for name in prop_candidates:
-                        for real_name, prop_def in props_schema.items():
-                            if real_name.lower() == name.lower():
-                                built = prop_value_builder(prop_def.get("type"))
-                                if built is not None:
-                                    properties[real_name] = built
-                                return
-
-                maybe_set_property(
-                    ["source"],
-                    lambda t: (
-                        {"rich_text": self._build_rich_text(source)}
-                        if t == "rich_text"
-                        else {"select": {"name": source}}
-                        if t == "select"
-                        else None
-                    ),
-                )
-                maybe_set_property(
-                    ["category", "type"],
-                    lambda t: (
-                        {"rich_text": self._build_rich_text(category)}
-                        if t == "rich_text"
-                        else {"select": {"name": category}}
-                        if t == "select"
-                        else {"multi_select": [{"name": category}]}
-                        if t == "multi_select"
-                        else None
-                    ),
-                )
-                maybe_set_property(
-                    ["captured_at", "capturedat", "timestamp", "created_at"],
-                    lambda t: {"date": {"start": captured_at}} if t == "date" else None,
-                )
-
-                page = self.client.pages.create(
-                    parent={"database_id": database_id},
-                    properties=properties,
-                )
-                page_id = page.get("id")
-                page_url = page.get("url")
-                logger.info(f"Created new daily page for {local_date}: {page_id}")
-            except Exception as e:
-                logger.error(f"Error creating daily page: {e}")
-                raise
-
-        raw_content = content if content is not None else ""
-        raw_context_question = context_question if context_question is not None else ""
-
-        blocks: list[dict] = []
-        time_header = local_datetime.split(" ")[1] if " " in local_datetime else local_datetime
-        blocks.append({
-            "object": "block",
-            "type": "heading_3",
-            "heading_3": {
-                "rich_text": self._build_rich_text(f"[{time_header}] {category}")
-            }
-        })
-        blocks.append({
-            "object": "block",
-            "type": "divider"
-        })
-
-        if str(raw_context_question).strip():
-            blocks.extend(self._content_to_quote_blocks(str(raw_context_question).strip()))
-
-        blocks.extend(self._content_to_paragraph_blocks(raw_content))
-
-        try:
-            self.client.blocks.children.append(block_id=page_id, children=blocks)
-            logger.info(f"Appended content to daily page {page_id}")
-        except Exception as e:
-            logger.error(f"Error appending blocks to daily page: {e}")
-            raise
-
-        return {"page_id": page_id, "url": page_url, "captured_at": local_datetime}
 
     def append_portfolio_ledger(
         self,
