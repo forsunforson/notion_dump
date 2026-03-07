@@ -4,12 +4,26 @@ import json
 import os
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
+
+import yaml
 
 from app.core.paths import output_dir
 from app.services.notion_service import NotionService
 
 
 QuickDumpCategory = Literal["reflection", "idea", "vent", "journal"]
+
+
+def _load_profile_timezone() -> str:
+    try:
+        profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (Path(__file__).parent.parent.parent / "config" / "profile.yaml"))
+        if profile_path.exists():
+            profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+            return profile.get("preferences", {}).get("timezone", "Asia/Shanghai")
+    except Exception:
+        pass
+    return "Asia/Shanghai"
 
 
 def save_reflection_record(
@@ -30,7 +44,9 @@ def save_reflection_record(
     state_path = output_dir() / "quick_dump_dedupe.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
-    captured_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timezone_str = _load_profile_timezone()
+    tz = ZoneInfo(timezone_str)
+    captured_at = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
     content_str = str(content)
     context_str = str(context_question or "")
     dedupe_key = hashlib.sha256(f"{category}\n{context_str}\n{content_str}".encode("utf-8")).hexdigest()
@@ -45,14 +61,14 @@ def save_reflection_record(
         if isinstance(existing_ts, str):
             try:
                 existing_dt = datetime.datetime.fromisoformat(existing_ts.replace("Z", "+00:00"))
-                now_dt = datetime.datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+                now_dt = datetime.datetime.now(tz)
                 if (now_dt - existing_dt).total_seconds() <= 600:
                     return f"记录已成功存入大脑（去重命中），时间戳：{existing_ts}"
             except Exception:
                 pass
 
         notion = NotionService()
-        result = notion.append_to_inbox(
+        result = notion.append_to_daily_inbox(
             content=content_str,
             source=source,
             category=category,
