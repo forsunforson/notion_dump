@@ -381,3 +381,94 @@ class NotionService:
             children=children,
         )
         return {"page_id": page.get("id"), "url": page.get("url"), "captured_at": captured_at}
+
+    def append_portfolio_ledger(
+        self,
+        ticker: str,
+        action: str,
+        price: float,
+        quantity: float,
+        currency: str,
+        total_amount: float,
+        notes: str = "",
+    ) -> dict:
+        database_id = (os.getenv("NOTION_PORTFOLIO_LEDGER_DB_ID") or "").strip()
+        if not database_id:
+            raise ValueError("NOTION_PORTFOLIO_LEDGER_DB_ID environment variable is not set")
+
+        captured_at = self._utc_now_iso()
+        title = f"[{action}] {ticker} - {captured_at[:10]}"
+
+        title_prop_name = self._resolve_title_property_name(database_id)
+        db = self.client.databases.retrieve(database_id=database_id)
+        props_schema = (db.get("properties", {}) or {})
+        if not props_schema and (db.get("data_sources") or []):
+            ds_id = (db.get("data_sources") or [{}])[0].get("id")
+            if ds_id:
+                ds_obj = self.client.request(path=f"data_sources/{ds_id}", method="GET")
+                props_schema = (ds_obj.get("properties", {}) or {})
+
+        properties: dict[str, Any] = {
+            title_prop_name: {"title": self._build_rich_text(title)}
+        }
+
+        def maybe_set_property(prop_candidates: list[str], prop_value_builder):
+            for name in prop_candidates:
+                for real_name, prop_def in props_schema.items():
+                    if real_name.lower() == name.lower():
+                        built = prop_value_builder(prop_def.get("type"))
+                        if built is not None:
+                            properties[real_name] = built
+                        return
+
+        maybe_set_property(
+            ["date", "trade_date", "transaction_date"],
+            lambda t: {"date": {"start": captured_at}} if t == "date" else None,
+        )
+
+        maybe_set_property(
+            ["ticker", "stock_code", "symbol", "name"],
+            lambda t: (
+                {"title": self._build_rich_text(ticker)}
+                if t == "title"
+                else {"rich_text": self._build_rich_text(ticker)}
+                if t == "rich_text"
+                else None
+            ),
+        )
+
+        maybe_set_property(
+            ["action", "type", "operation", "trade_type"],
+            lambda t: {"select": {"name": action}} if t == "select" else None,
+        )
+
+        maybe_set_property(
+            ["price", "trade_price", "unit_price"],
+            lambda t: {"number": round(price, 2)} if t == "number" else None,
+        )
+
+        maybe_set_property(
+            ["quantity", "shares", "amount", "volume", "num_shares"],
+            lambda t: {"number": round(quantity, 2)} if t == "number" else None,
+        )
+
+        maybe_set_property(
+            ["currency", "币种", "money_type"],
+            lambda t: {"select": {"name": currency}} if t == "select" else None,
+        )
+
+        maybe_set_property(
+            ["total_amount", "total", "total_price", "总金额"],
+            lambda t: {"number": round(total_amount, 2)} if t == "number" else None,
+        )
+
+        maybe_set_property(
+            ["notes", "note", "备注", "remark", "comment"],
+            lambda t: {"rich_text": self._build_rich_text(notes)} if t == "rich_text" else None,
+        )
+
+        page = self.client.pages.create(
+            parent={"database_id": database_id},
+            properties=properties,
+        )
+        return {"page_id": page.get("id"), "url": page.get("url"), "captured_at": captured_at}
