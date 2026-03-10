@@ -101,3 +101,108 @@ class TestNotionDailyChatLogBlocks(unittest.TestCase):
         self.assertEqual(len(svc.client.blocks.children.calls), 1)
         self.assertEqual(svc.client.blocks.children.calls[0]["block_id"], "page_existing")
 
+    def test_accepts_data_source_id_by_falling_back_to_data_sources_query(self):
+        from app.services.notion_service import NotionService
+
+        class _DummyDataSources:
+            def __init__(self, results: list[dict]):
+                self._results = results
+                self.calls = []
+
+            def query(self, data_source_id: str, **kwargs):
+                self.calls.append({"data_source_id": data_source_id, "kwargs": kwargs})
+                return {"results": self._results, "has_more": False, "next_cursor": None}
+
+        class _DummyDatabasesRaise:
+            def __init__(self):
+                self.calls = []
+
+            def retrieve(self, database_id: str):
+                self.calls.append(database_id)
+                raise Exception("Invalid request URL.")
+
+        class _DummyClientDSOnly:
+            def __init__(self, ds_obj: dict, ds_results: list[dict]):
+                self.databases = _DummyDatabasesRaise()
+                self.data_sources = _DummyDataSources(ds_results)
+                self.pages = _DummyPages()
+                self.blocks = _DummyBlocks()
+                self._ds_obj = ds_obj
+                self.request_calls = []
+
+            def request(self, **kwargs):
+                self.request_calls.append(kwargs)
+                path = kwargs.get("path") or ""
+                if path.startswith("databases/") and path.endswith("/query"):
+                    raise Exception("Invalid request URL.")
+                if path.startswith("data_sources/") and kwargs.get("method") == "GET":
+                    return self._ds_obj
+                return {}
+
+        os.environ["NOTION_CHAT_LOGS_DB_ID"] = "ds_123"
+        svc = NotionService(token="test-token")
+        svc.client = _DummyClientDSOnly(
+            ds_obj={"properties": {"Name": {"type": "title"}}, "database_id": "db_real"},
+            ds_results=[],
+        )
+        now_local = datetime.datetime(2026, 3, 10, 14, 30, 25, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+        svc._append_to_daily_chat_log_sync(role="User", content="hello", now_local=now_local)
+
+        self.assertEqual(len(svc.client.pages.calls), 1)
+        self.assertEqual(svc.client.pages.calls[0]["parent"]["database_id"], "db_real")
+        self.assertGreaterEqual(len(svc.client.blocks.children.calls), 1)
+
+    def test_database_with_data_sources_queries_via_data_source(self):
+        from app.services.notion_service import NotionService
+
+        class _DummyDataSources:
+            def __init__(self, results: list[dict]):
+                self._results = results
+                self.calls = []
+
+            def query(self, data_source_id: str, **kwargs):
+                self.calls.append({"data_source_id": data_source_id, "kwargs": kwargs})
+                return {"results": self._results, "has_more": False, "next_cursor": None}
+
+        class _DummyDatabases:
+            def __init__(self, db_obj: dict):
+                self._db_obj = db_obj
+                self.calls = []
+
+            def retrieve(self, database_id: str):
+                self.calls.append(database_id)
+                return self._db_obj
+
+        class _DummyClientDbWithDataSources:
+            def __init__(self, db_obj: dict, ds_results: list[dict]):
+                self.databases = _DummyDatabases(db_obj)
+                self.data_sources = _DummyDataSources(ds_results)
+                self.pages = _DummyPages()
+                self.blocks = _DummyBlocks()
+                self.request_calls = []
+
+            def request(self, **kwargs):
+                self.request_calls.append(kwargs)
+                path = kwargs.get("path") or ""
+                if path.startswith("databases/") and path.endswith("/query"):
+                    raise Exception("Invalid request URL.")
+                if path.startswith("data_sources/") and kwargs.get("method") == "GET":
+                    return {"properties": {"Name": {"type": "title"}}}
+                return {}
+
+        os.environ["NOTION_CHAT_LOGS_DB_ID"] = "db_wrapper"
+        svc = NotionService(token="test-token")
+        svc.client = _DummyClientDbWithDataSources(
+            db_obj={"data_sources": [{"id": "ds_real"}], "properties": {}},
+            ds_results=[{"id": "page_existing"}],
+        )
+        now_local = datetime.datetime(2026, 3, 10, 9, 10, 11, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+        svc._append_to_daily_chat_log_sync(role="User", content="hello", now_local=now_local)
+
+        self.assertEqual(len(svc.client.pages.calls), 0)
+        self.assertEqual(len(svc.client.data_sources.calls), 1)
+        self.assertEqual(svc.client.data_sources.calls[0]["data_source_id"], "ds_real")
+        self.assertEqual(len(svc.client.blocks.children.calls), 1)
+        self.assertEqual(svc.client.blocks.children.calls[0]["block_id"], "page_existing")

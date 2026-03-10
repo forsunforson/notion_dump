@@ -22,6 +22,8 @@ class NotionService:
             raise ValueError("Notion token is required. Set NOTION_TOKEN environment variable or pass token parameter.")
         self.client = Client(auth=self.token)
         self._db_title_prop_name_cache: dict[str, str] = {}
+        self._db_query_target_cache: dict[str, tuple[str, str]] = {}
+        self._db_parent_database_id_cache: dict[str, str] = {}
         self._daily_chat_log_page_cache: dict[str, str] = {}
         self._daily_chat_log_lock = threading.Lock()
         self._daily_chat_log_executor = concurrent.futures.ThreadPoolExecutor(
@@ -246,13 +248,22 @@ class NotionService:
         if cached:
             return cached
 
-        db = self.client.databases.retrieve(database_id=database_id)
-
         def find_title_prop(properties: dict) -> str | None:
             for prop_name, prop in (properties or {}).items():
                 if isinstance(prop, dict) and prop.get("type") == "title":
                     return prop_name
             return None
+
+        target_type, target_id = self._resolve_query_target(database_id)
+        if target_type == "data_source":
+            ds_obj = self.client.request(path=f"data_sources/{target_id}", method="GET")
+            prop_name = find_title_prop(ds_obj.get("properties", {}) or {})
+            if prop_name:
+                self._db_title_prop_name_cache[database_id] = prop_name
+                return prop_name
+            raise ValueError(f"Could not find title property in data source {target_id}")
+
+        db = self.client.databases.retrieve(database_id=database_id)
 
         prop_name = find_title_prop(db.get("properties", {}) or {})
         if prop_name:
@@ -345,11 +356,39 @@ class NotionService:
             {"type": "text", "text": {"content": content or ""}},
         ]
 
+    def _resolve_query_target(self, database_id: str) -> tuple[str, str]:
+        cached = self._db_query_target_cache.get(database_id)
+        if cached:
+            return cached
+
+        try:
+            db_obj = self.client.databases.retrieve(database_id=database_id)
+        except Exception as e:
+            msg = str(e)
+            if "Invalid request URL" in msg or "Could not find database with ID" in msg:
+                target = ("data_source", database_id)
+                self._db_query_target_cache[database_id] = target
+                return target
+            raise
+
+        data_sources = db_obj.get("data_sources") or []
+        if data_sources and isinstance(data_sources[0], dict):
+            ds_id = (data_sources[0].get("id") or "").strip()
+            if ds_id:
+                target = ("data_source", ds_id)
+                self._db_query_target_cache[database_id] = target
+                return target
+
+        target = ("database", database_id)
+        self._db_query_target_cache[database_id] = target
+        return target
+
     def _query_database_sync(
         self,
         database_id: str,
         filter_params: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        target_type, target_id = self._resolve_query_target(database_id)
         results: list[dict] = []
         start_cursor = None
         while True:
@@ -358,16 +397,49 @@ class NotionService:
                 query_body["filter"] = filter_params
             if start_cursor:
                 query_body["start_cursor"] = start_cursor
-            response = self.client.request(
-                path=f"databases/{database_id}/query",
-                method="POST",
-                body=query_body,
-            )
+            if target_type == "database":
+                response = self.client.request(
+                    path=f"databases/{target_id}/query",
+                    method="POST",
+                    body=query_body,
+                )
+            else:
+                response = self.client.data_sources.query(
+                    data_source_id=target_id,
+                    **query_body,
+                )
             results.extend(response.get("results", []) or [])
             if not response.get("has_more"):
                 break
             start_cursor = response.get("next_cursor")
         return results
+
+    def _resolve_pages_parent_database_id(self, database_id: str) -> str:
+        cached = self._db_parent_database_id_cache.get(database_id)
+        if cached:
+            return cached
+
+        try:
+            self.client.databases.retrieve(database_id=database_id)
+            resolved = database_id
+            self._db_parent_database_id_cache[database_id] = resolved
+            return resolved
+        except Exception:
+            pass
+
+        ds_obj = self.client.request(path=f"data_sources/{database_id}", method="GET") or {}
+        parent = ds_obj.get("parent") or {}
+        resolved = (
+            ds_obj.get("database_id")
+            or parent.get("database_id")
+        )
+        if isinstance(resolved, str) and resolved.strip():
+            resolved = resolved.strip()
+            self._db_parent_database_id_cache[database_id] = resolved
+            return resolved
+        raise ValueError(
+            "NOTION_CHAT_LOGS_DB_ID appears to be a data_source id, but could not resolve database_id for page creation."
+        )
 
     def _ensure_daily_chat_log_page(self, database_id: str, date_str: str) -> str:
         page_title = f"{date_str} 对话实录"
@@ -375,7 +447,8 @@ class NotionService:
         if cached:
             return cached
 
-        title_prop_name = self._resolve_title_property_name(database_id)
+        parent_database_id = self._resolve_pages_parent_database_id(database_id)
+        title_prop_name = self._resolve_title_property_name(parent_database_id)
         pages = self._query_database_sync(
             database_id=database_id,
             filter_params={"property": title_prop_name, "title": {"equals": page_title}},
@@ -387,7 +460,7 @@ class NotionService:
                 return page_id
 
         page = self.client.pages.create(
-            parent={"database_id": database_id},
+            parent={"database_id": parent_database_id},
             properties={title_prop_name: {"title": self._build_rich_text(page_title)}},
         )
         page_id = page.get("id")
