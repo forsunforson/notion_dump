@@ -8,18 +8,11 @@ import yaml
 
 from app.core.paths import project_root as _project_root, output_dir
 from app.services.notion_service import NotionService
+from app.utils.plain import to_plain
 
 
 PortfolioAction = Literal["BUY", "SELL", "DIVIDEND"]
 PortfolioCurrency = Literal["HKD", "CNY", "USD"]
-
-
-def _to_plain(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _to_plain(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_to_plain(v) for v in value]
-    return value
 
 
 def _find_and_update_stock(
@@ -125,8 +118,8 @@ def _write_changelog(
     event = {
         "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "yaml_path": yaml_path,
-        "old_value": _to_plain(old_value),
-        "new_value": _to_plain(new_value),
+        "old_value": to_plain(old_value),
+        "new_value": to_plain(new_value),
         "reason": reason,
         "source": "update_portfolio_skill",
     }

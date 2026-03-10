@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from app.core.paths import project_root, config_dir, output_dir, reports_dir
+from app.utils.frontmatter import parse_frontmatter_meta
+from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +29,7 @@ class ContextFetcher:
 
     @staticmethod
     def parse_frontmatter(content: str) -> dict:
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        if not match:
-            return {}
-        try:
-            data = yaml.safe_load(match.group(1)) or {}
-        except Exception:
-            return {}
-        return data if isinstance(data, dict) else {}
+        return parse_frontmatter_meta(content)
 
     @classmethod
     def is_daily_entry(cls, content: str) -> bool:
@@ -63,11 +58,8 @@ class ContextFetcher:
             logger.error(f"Error reading profile file: {e}")
             return {}
     
-    def get_time_info(self, timezone_str: str) -> dict:
-        try:
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            tz = ZoneInfo("Asia/Shanghai")
+    def get_time_info(self) -> dict:
+        tz = load_profile_timezone()
         
         now = datetime.datetime.now(tz)
         weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
@@ -78,13 +70,7 @@ class ContextFetcher:
         }
     
     def extract_date_from_yaml(self, content: str) -> str | None:
-        try:
-            profile = self.get_profile()
-            preferences = profile.get("preferences", {})
-            timezone_str = preferences.get("timezone", "Asia/Shanghai")
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            tz = ZoneInfo("Asia/Shanghai")
+        tz = load_profile_timezone()
         
         yaml_match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
         if not yaml_match:
@@ -156,14 +142,7 @@ class ContextFetcher:
         if not self.reports_dir.exists():
             return ""
         
-        profile = self.get_profile()
-        preferences = profile.get("preferences", {})
-        timezone_str = preferences.get("timezone", "Asia/Shanghai")
-        
-        try:
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            tz = ZoneInfo("Asia/Shanghai")
+        tz = load_profile_timezone()
         
         cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
@@ -190,14 +169,7 @@ class ContextFetcher:
         return "\n\n".join(valid_reports) if valid_reports else ""
     
     def get_recent_workout_logs(self, days: int = 7) -> str:
-        profile = self.get_profile()
-        preferences = profile.get("preferences", {})
-        timezone_str = preferences.get("timezone", "Asia/Shanghai")
-        
-        try:
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            tz = ZoneInfo("Asia/Shanghai")
+        tz = load_profile_timezone()
         
         cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
@@ -329,15 +301,7 @@ class ContextFetcher:
         if not any(p.exists() for p in self.history_files):
             return ""
         
-        profile = self.get_profile()
-        preferences = profile.get("preferences", {})
-        timezone_str = preferences.get("timezone", "Asia/Shanghai")
-        
-        try:
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            logger.error(f"Invalid timezone in profile: {timezone_str}")
-            return ""
+        tz = load_profile_timezone()
         
         cutoff_date = datetime.datetime.now(tz) - datetime.timedelta(days=days)
         cutoff_str = cutoff_date.strftime('%Y-%m-%dT%H:%M:%S')
@@ -380,14 +344,7 @@ class ContextFetcher:
         return "\n".join(summary_parts)
     
     def localize_text_timestamps(self, text: str) -> str:
-        profile = self.get_profile()
-        preferences = profile.get("preferences", {})
-        timezone_str = preferences.get("timezone", "Asia/Shanghai")
-        
-        try:
-            tz = ZoneInfo(timezone_str)
-        except Exception:
-            tz = ZoneInfo("Asia/Shanghai")
+        tz = load_profile_timezone()
         
         pattern = r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'
         

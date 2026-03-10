@@ -35,13 +35,21 @@
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
+-   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
--   **`telegram_service.py`**: 消息推送服务。仅负责单向发送 (Send Message)。
+-   **`telegram_service.py`**: 消息推送服务。负责单向发送 (Send Message)，并调用 `ChatLogService` 记录 Bot 发送的消息。
 -   **`prompt_manager.py`**: 提示词工程管理。维护“苏格拉底回顾” System/User Prompt（`SOCRATIC_REVIEW_SYSTEM_PROMPT` / `SOCRATIC_REVIEW_USER_PROMPT`），并提供 `build_socratic_review_prompt(profile, metrics_trend, notes_content)` 生成 messages；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
 
 ### 工具链 (Utilities - `app/utils/`)
 -   **`notion_converter.py`**: 核心转换器。负责 Notion Block -> Markdown 的渲染，以及 Page Properties -> YAML Frontmatter 的映射。
--   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；同时提供 Frontmatter 解析与日记判定（`is_daily_entry`）。
+-   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
+-   **`plain.py`**: 通用数据清洗工具。提供 `to_plain` 函数，递归将 ruamel.yaml 对象转换为原生 Python dict/list。
+-   **`notion_ids.py`**: ID 标准化工具。提供 `normalize_uuid` 函数，统一 Notion UUID 格式（带横杠）。
+-   **`notion_meta.py`**: 元数据提取工具。提供 `extract_title` 和 `get_page_meta` 函数，从 Notion 对象中提取关键信息。
+-   **`timezone_utils.py`**: 时区管理工具。提供 `load_profile_timezone` 函数，统一从 `profile.yaml` 加载用户时区配置。
+-   **`frontmatter.py`**: Frontmatter 解析工具。提供 `parse_frontmatter` 函数，统一解析 Markdown YAML 头。
+-   **`text_chunking.py`**: 文本切分工具。提供 `split_text_by_length` (Notion) 和 `split_text_smart` (Telegram) 两种切分策略。
+-   **`jsonl_kv_store.py`**: JSONL 存储工具。提供 `upsert_jsonl` 函数，支持基于键值的增量写入。
 
 ## 3. 核心数据契约 (Data Schemas)
 

@@ -7,17 +7,10 @@ from typing import Any, Literal
 import yaml
 
 from app.core.paths import project_root as _project_root, output_dir
- 
- 
+from app.utils.plain import to_plain
+
+
 UpdateProfileCategory = Literal["update", "add"]
- 
- 
-def _to_plain(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _to_plain(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_to_plain(v) for v in value]
-    return value
  
  
 def _is_static_locked_path(path: str) -> bool:
@@ -93,9 +86,9 @@ def update_profile_attribute(
  
             with open(profile_path, "w", encoding="utf-8") as f:
                 ryaml.dump(data, f)
- 
-            old_plain = _to_plain(old_value)
-            new_plain = _to_plain(new_value)
+
+            old_plain = to_plain(old_value)
+            new_plain = to_plain(new_value)
         except Exception:
             with open(profile_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
@@ -122,10 +115,10 @@ def update_profile_attribute(
  
             with open(profile_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
- 
-            old_plain = _to_plain(old_value)
-            new_plain = _to_plain(new_value)
- 
+
+            old_plain = to_plain(old_value)
+            new_plain = to_plain(new_value)
+
         changelog_path.parent.mkdir(parents=True, exist_ok=True)
         event = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -11,6 +11,9 @@ from notion_client import Client
 import yaml
 
 from app.core.paths import config_dir
+from app.utils.notion_meta import extract_title, get_page_meta
+from app.utils.text_chunking import split_text_by_length
+from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -124,39 +127,18 @@ class NotionService:
         """
         try:
             page = self.client.pages.retrieve(page_id=page_id)
-            properties = page.get("properties", {})
-            created_time = page.get("created_time")
-            last_edited_time = page.get("last_edited_time")
-            
-            title_prop = properties.get("title") or properties.get("Name")
-            title = "Untitled"
-            if title_prop and "title" in title_prop:
-                title = "".join([t["plain_text"] for t in title_prop["title"]])
-            
-            return {
-                "title": title,
-                "created_time": created_time,
-                "last_edited_time": last_edited_time,
-                "properties": properties,
-                "type": "page",
-                "object": page
-            }
+            meta = get_page_meta(page)
+            # Add properties for compatibility
+            meta["properties"] = page.get("properties", {})
+            return meta
             
         except Exception as e:
             if "is a database" in str(e):
                 try:
                     db = self.client.databases.retrieve(database_id=page_id)
-                    title_objs = db.get("title", [])
-                    title = "".join([t["plain_text"] for t in title_objs]) or "Untitled Database"
-                    
-                    return {
-                        "title": title,
-                        "created_time": db.get("created_time"),
-                        "last_edited_time": db.get("last_edited_time"),
-                        "properties": {},
-                        "type": "database",
-                        "object": db
-                    }
+                    meta = get_page_meta(db)
+                    meta["properties"] = {}
+                    return meta
                 except Exception as db_e:
                     logger.error(f"Error retrieving database {page_id}: {db_e}")
             else:
@@ -292,60 +274,31 @@ class NotionService:
 
     @classmethod
     def _split_text_for_notion(cls, text: str, max_len: int = 1800) -> list[str]:
-        if not text:
-            return [""]
-        chunks: list[str] = []
-        i = 0
-        while i < len(text):
-            chunks.append(text[i : i + max_len])
-            i += max_len
-        return chunks
+        return split_text_by_length(text, max_len)
+
+    @classmethod
+    def _content_to_blocks(cls, content: str, block_type: str = "paragraph") -> list[dict]:
+        blocks: list[dict] = []
+        for chunk in cls._split_text_for_notion(content):
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": block_type,
+                    block_type: {"rich_text": cls._build_rich_text(chunk)},
+                }
+            )
+        return blocks
 
     @classmethod
     def _content_to_paragraph_blocks(cls, content: str) -> list[dict]:
-        blocks: list[dict] = []
-        for chunk in cls._split_text_for_notion(content):
-            blocks.append(
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {"rich_text": cls._build_rich_text(chunk)},
-                }
-            )
-        return blocks
+        return cls._content_to_blocks(content, "paragraph")
 
     @classmethod
     def _content_to_quote_blocks(cls, content: str) -> list[dict]:
-        blocks: list[dict] = []
-        for chunk in cls._split_text_for_notion(content):
-            blocks.append(
-                {
-                    "object": "block",
-                    "type": "quote",
-                    "quote": {"rich_text": cls._build_rich_text(chunk)},
-                }
-            )
-        return blocks
+        return cls._content_to_blocks(content, "quote")
 
     def _load_profile_timezone(self) -> ZoneInfo:
-        profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (config_dir() / "profile.yaml"))
-        timezone_str = "Asia/Shanghai"
-        try:
-            if profile_path.exists():
-                with open(profile_path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                if isinstance(data, dict):
-                    timezone_str = (
-                        (data.get("preferences") or {}).get("timezone")
-                        or timezone_str
-                    )
-        except Exception as e:
-            logger.warning(f"Failed to load timezone from profile.yaml: {e}")
-
-        try:
-            return ZoneInfo(str(timezone_str))
-        except Exception:
-            return ZoneInfo("Asia/Shanghai")
+        return load_profile_timezone()
 
     @staticmethod
     def _build_chatlog_rich_text(role: str, time_str: str, content: str) -> list[dict]:

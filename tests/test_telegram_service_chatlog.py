@@ -70,7 +70,7 @@ class TestTelegramServiceChatLog(unittest.IsolatedAsyncioTestCase):
         factory = _DummyClientSessionFactory(response)
 
         svc = TelegramService()
-        svc.notion = dummy_notion
+        svc.chat_log.notion = dummy_notion
 
         with patch("app.services.telegram_service.aiohttp.ClientSession", factory):
             ok = await svc.send_message("hello")

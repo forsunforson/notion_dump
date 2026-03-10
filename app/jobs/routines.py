@@ -6,6 +6,7 @@ from app.services.telegram_service import TelegramService
 from app.services.llm_service import LLMService
 from app.jobs.periodic_review import PeriodicReviewJob
 from app.utils.context_fetcher import ContextFetcher
+from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +75,9 @@ class DailyRoutines:
     async def _generate_today_workout_plan(self) -> str:
         profile = self.fetcher.get_profile()
         user_name = profile.get("name", "ywy")
-        preferences = profile.get("preferences", {})
         physical_baseline = profile.get("physical_baseline", {})
-        timezone_str = preferences.get("timezone", "Asia/Shanghai")
 
-        time_info = self.fetcher.get_time_info(timezone_str)
+        time_info = self.fetcher.get_time_info()
         current_date = time_info.get("current_date", "")
         current_weekday = time_info.get("current_weekday", "")
 
@@ -126,7 +125,7 @@ class DailyRoutines:
         return (text or "").strip()
 
     async def _send_long_message(self, text: str, max_chars: int = 3500) -> bool:
-        parts = self._split_message(text, max_chars=max_chars)
+        parts = split_text_smart(text, max_chars=max_chars)
         for i, part in enumerate(parts):
             ok = await self.telegram.send_message(part)
             if not ok:
@@ -134,32 +133,3 @@ class DailyRoutines:
             if i < len(parts) - 1:
                 await asyncio.sleep(1)
         return True
-
-    def _split_message(self, text: str, max_chars: int = 3500) -> list[str]:
-        s = (text or "").strip()
-        if not s:
-            return []
-        if len(s) <= max_chars:
-            return [s]
-
-        chunks = []
-        buf = ""
-        for block in re.split(r"\n{2,}", s):
-            block = block.strip()
-            if not block:
-                continue
-            candidate = (buf + "\n\n" + block).strip() if buf else block
-            if len(candidate) <= max_chars:
-                buf = candidate
-                continue
-            if buf:
-                chunks.append(buf)
-                buf = ""
-            if len(block) <= max_chars:
-                buf = block
-                continue
-            for i in range(0, len(block), max_chars):
-                chunks.append(block[i : i + max_chars])
-        if buf:
-            chunks.append(buf)
-        return chunks

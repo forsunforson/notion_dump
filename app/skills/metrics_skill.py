@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from app.core.paths import output_dir
+from app.utils.jsonl_kv_store import upsert_jsonl
 
 def upsert_daily_metric(
     date: str,
@@ -66,31 +67,11 @@ def upsert_daily_metric(
 
         metrics_path = output_dir() / "metrics.jsonl"
         
-        metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        metrics_map = {}
-        
-        if metrics_path.exists():
-            with open(metrics_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        item = json.loads(line)
-                        key = item.get("source") or item.get("date")
-                        if key:
-                            metrics_map[key] = item
-                    except json.JSONDecodeError:
-                        continue
-        
-        # Update the map
-        metrics_map[real_source] = metrics
-        
-        with open(metrics_path, 'w', encoding='utf-8') as f:
-            for item in metrics_map.values():
-                f.write(json.dumps(item, ensure_ascii=False) + '\n')
-                
-        return f"Successfully updated metrics for {date}."
+        try:
+            upsert_jsonl(metrics_path, metrics, key_fields=("source", "date"))
+            return f"Successfully updated metrics for {date}."
+        except Exception as e:
+            return f"Error updating metrics: {str(e)}"
         
     except Exception as e:
         return f"Error updating metrics: {str(e)}"

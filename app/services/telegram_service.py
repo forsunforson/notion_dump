@@ -3,7 +3,7 @@ import logging
 import aiohttp
 from typing import Optional
 
-from app.services.notion_service import NotionService
+from app.services.chat_log_service import ChatLogService
 
 logger = logging.getLogger(__name__)
 
@@ -12,11 +12,7 @@ class TelegramService:
     def __init__(self):
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        try:
-            self.notion = NotionService()
-        except Exception as e:
-            logger.warning(f"NotionService disabled: {e}")
-            self.notion = None
+        self.chat_log = ChatLogService()
         
         if not self.bot_token:
             logger.warning("TELEGRAM_BOT_TOKEN not set. Telegram notifications will be disabled.")
@@ -33,8 +29,8 @@ class TelegramService:
             return False
 
         final_text = text if text is not None else ""
-        if self.notion and str(final_text).strip():
-            self.notion.append_to_daily_chat_log(role="Bot", content=str(final_text))
+        if str(final_text).strip():
+            self.chat_log.log_message(role="Bot", content=str(final_text))
         
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         

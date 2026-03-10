@@ -6,6 +6,8 @@ import os
 import yaml
 from pathlib import Path
 
+from app.utils.notion_ids import normalize_uuid
+
 
 class ForceDoubleQuoteStr(str):
     pass
@@ -199,11 +201,8 @@ class NotionToMarkdown:
         self.page_titles = {}
 
     def _format_uuid(self, id_str):
-        """Format a Notion ID string into a standard UUID format (with dashes)."""
-        try:
-            return str(uuid.UUID(id_str))
-        except ValueError:
-            return id_str
+        """Format a Notion ID string into a standard UUID format (with dashes). (Deprecated)"""
+        return normalize_uuid(id_str)
 
     def _sanitize_filename(self, name):
         """Sanitize the filename to be safe for file systems."""

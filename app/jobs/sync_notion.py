@@ -12,6 +12,8 @@ from typing import Optional, List, Dict, Any
 from app.core.paths import project_root, output_dir
 from app.services.notion_service import NotionService
 from app.utils.notion_converter import NotionToMarkdown, NotionMapper
+from app.utils.notion_ids import normalize_uuid
+from app.utils.notion_meta import extract_title, get_page_meta
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +33,8 @@ class SyncNotionJob:
     
     @staticmethod
     def format_uuid(id_str: str) -> Optional[str]:
-        """Format a Notion ID string into a standard UUID format."""
-        if not id_str:
-            return None
-        try:
-            return str(uuid.UUID(id_str))
-        except ValueError:
-            return id_str
+        """Format a Notion ID string into a standard UUID format. (Deprecated, use normalize_uuid)"""
+        return normalize_uuid(id_str)
     
     @staticmethod
     def extract_page_id(input_str: str) -> Optional[str]:
@@ -95,44 +92,20 @@ class SyncNotionJob:
         """Retrieve title and metadata of a Notion page or database."""
         # 如果没有传入 page_obj，才去发起网络请求拉取
         if not page_obj:
-            page_obj = await self.notion_api.get_page_meta(page_id)
-            
+            fetched_meta = await self.notion_api.get_page_meta(page_id)
+            if fetched_meta:
+                # Ensure compatibility with SyncNotionJob expectation of 'page_obj'
+                if "page_obj" not in fetched_meta and "object" in fetched_meta:
+                    fetched_meta["page_obj"] = fetched_meta["object"]
+                return fetched_meta
+
         if not page_obj:
             return {"title": "Unknown", "type": "unknown", "page_obj": None}
-            
-        if page_obj.get("object") == "page":
-            props = page_obj.get("properties", {})
-            title = "Untitled"
-            # 遍历查找 type 为 title 的属性
-            for prop in props.values():
-                if prop.get("type") == "title":
-                    title_array = prop.get("title", [])
-                    title = "".join([t.get("plain_text", "") for t in title_array]) or "Untitled"
-                    break
-                    
-            return {
-                "title": title,
-                "created_time": page_obj.get("created_time"),
-                "last_edited_time": page_obj.get("last_edited_time"),
-                "properties": props,
-                "type": "page",
-                "page_obj": page_obj  # 核心修复：必须把原始对象包裹返回
-            }
-            
-        elif page_obj.get("object") == "database":
-            db = page_obj
-            title_objs = db.get("title", [])
-            title = "".join([t.get("plain_text", "") for t in title_objs]) or "Untitled Database"
-            return {
-                "title": title,
-                "created_time": db.get("created_time"),
-                "last_edited_time": db.get("last_edited_time"),
-                "properties": {},
-                "type": "database",
-                "page_obj": db
-            }
-            
-        return {"title": "Unknown", "type": "unknown", "page_obj": page_obj}
+
+        meta = get_page_meta(page_obj)
+        meta["page_obj"] = page_obj
+        meta["properties"] = page_obj.get("properties", {})
+        return meta
     
     async def download_page(
         self,

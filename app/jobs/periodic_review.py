@@ -11,6 +11,8 @@ from app.core.paths import output_dir as _output_dir, reports_dir as _reports_di
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.utils.context_fetcher import ContextFetcher
+from app.utils.frontmatter import parse_frontmatter
+from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ class PeriodicReviewJob:
 
         self.review_type = review_type
         self.prompt_manager = PromptManager()
-        self.tz = self._load_timezone_from_profile()
+        self.tz = load_profile_timezone()
         self.output_path: Path | None = None
 
     async def run(
@@ -58,7 +60,7 @@ class PeriodicReviewJob:
                 logger.warning(f"Failed to read file {md_file}: {e}")
                 continue
 
-            frontmatter, body = self._parse_frontmatter(raw)
+            frontmatter, body = parse_frontmatter(raw)
             if not frontmatter:
                 continue
             if not (ContextFetcher.is_daily_entry(raw) or self._is_diary(frontmatter)):
@@ -179,17 +181,6 @@ class PeriodicReviewJob:
             logger.warning(f"Output directory not found: {OUTPUT_DIR}")
             return []
         return list(OUTPUT_DIR.glob("**/*.md"))
-
-    def _parse_frontmatter(self, content: str) -> tuple[dict, str]:
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        if not match:
-            return {}, content
-        try:
-            data = yaml.safe_load(match.group(1)) or {}
-        except Exception:
-            return {}, content
-        body = content[match.end() :]
-        return (data if isinstance(data, dict) else {}), body
 
     def _parse_created_time_utc(self, frontmatter: dict) -> datetime.datetime | None:
         value = frontmatter.get("created_time")
@@ -332,23 +323,6 @@ class PeriodicReviewJob:
         except Exception:
             content = "\n".join([json.dumps(m, ensure_ascii=False) for m in metrics])
         return f"## Metrics\n\n```json\n{content}\n```\n"
-
-    def _load_timezone_from_profile(self) -> ZoneInfo:
-        profile = self.prompt_manager.get_profile_data() or {}
-        tz_str = LOCAL_TIMEZONE
-        try:
-            preferences = profile.get("preferences") if isinstance(profile, dict) else {}
-            if isinstance(preferences, dict):
-                tz_candidate = preferences.get("timezone")
-                if isinstance(tz_candidate, str) and tz_candidate.strip():
-                    tz_str = tz_candidate.strip()
-        except Exception:
-            tz_str = LOCAL_TIMEZONE
-
-        try:
-            return ZoneInfo(tz_str)
-        except Exception:
-            return ZoneInfo(LOCAL_TIMEZONE)
 
     def _format_notes_content(self, entries: list[dict]) -> str:
         if not entries:

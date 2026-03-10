@@ -6,7 +6,7 @@ import yaml
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from app.services.llm_service import LLMService
-from app.services.notion_service import NotionService
+from app.services.chat_log_service import ChatLogService
 from app.utils.context_fetcher import ContextFetcher
 from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_profile_attribute
@@ -33,11 +33,7 @@ class TelegramBotRunner:
 
         self.llm = LLMService()
         self.fetcher = ContextFetcher()
-        try:
-            self.notion = NotionService()
-        except Exception as e:
-            logger.warning(f"NotionService disabled: {e}")
-            self.notion = None
+        self.chat_log = ChatLogService()
         self._history_by_chat: dict[int, list[dict]] = {}
         logger.info("TelegramBotRunner initialized")
 
@@ -55,8 +51,7 @@ class TelegramBotRunner:
         user_name = update.effective_user.first_name if update.effective_user else "User"
         
         logger.info(f"Received message from {user_name}: {user_text}")
-        if self.notion:
-            self.notion.append_to_daily_chat_log(role="User", content=user_text)
+        self.chat_log.log_message(role="User", content=user_text)
 
         try:
             # Fetch user profile for context
@@ -207,16 +202,14 @@ class TelegramBotRunner:
             final_reply = reply_text or "抱歉，我没有听清楚，请再说一遍。"
             if not reply_text:
                 logger.warning("LLM returned empty response")
-            if self.notion:
-                self.notion.append_to_daily_chat_log(role="Bot", content=final_reply)
+            self.chat_log.log_message(role="Bot", content=final_reply)
             await update.message.reply_text(final_reply)
             logger.info(f"Sent reply to {user_name}")
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
             final_reply = "抱歉，我的大脑刚刚走神了，请再说一遍"
-            if self.notion:
-                self.notion.append_to_daily_chat_log(role="Bot", content=final_reply)
+            self.chat_log.log_message(role="Bot", content=final_reply)
             await update.message.reply_text(final_reply)
 
     def start_polling(self):
