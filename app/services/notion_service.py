@@ -2,8 +2,15 @@ import os
 import logging
 import asyncio
 import datetime
+import threading
+import concurrent.futures
+from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any
 from notion_client import Client
+import yaml
+
+from app.core.paths import config_dir
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +22,12 @@ class NotionService:
             raise ValueError("Notion token is required. Set NOTION_TOKEN environment variable or pass token parameter.")
         self.client = Client(auth=self.token)
         self._db_title_prop_name_cache: dict[str, str] = {}
+        self._daily_chat_log_page_cache: dict[str, str] = {}
+        self._daily_chat_log_lock = threading.Lock()
+        self._daily_chat_log_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=int((os.getenv("NOTION_ASYNC_MAX_WORKERS") or "2").strip() or 2),
+            thread_name_prefix="notion-chatlog",
+        )
     
     def _paginate(self, method, **kwargs) -> List[Dict[str, Any]]:
         """
@@ -302,6 +315,152 @@ class NotionService:
                 }
             )
         return blocks
+
+    def _load_profile_timezone(self) -> ZoneInfo:
+        profile_path = Path(os.getenv("PROFILE_YAML_PATH") or (config_dir() / "profile.yaml"))
+        timezone_str = "Asia/Shanghai"
+        try:
+            if profile_path.exists():
+                with open(profile_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if isinstance(data, dict):
+                    timezone_str = (
+                        (data.get("preferences") or {}).get("timezone")
+                        or timezone_str
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to load timezone from profile.yaml: {e}")
+
+        try:
+            return ZoneInfo(str(timezone_str))
+        except Exception:
+            return ZoneInfo("Asia/Shanghai")
+
+    @staticmethod
+    def _build_chatlog_rich_text(role: str, time_str: str, content: str) -> list[dict]:
+        prefix = f"{role} [{time_str}]"
+        return [
+            {"type": "text", "text": {"content": prefix}, "annotations": {"bold": True}},
+            {"type": "text", "text": {"content": ": "}},
+            {"type": "text", "text": {"content": content or ""}},
+        ]
+
+    def _query_database_sync(
+        self,
+        database_id: str,
+        filter_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        results: list[dict] = []
+        start_cursor = None
+        while True:
+            query_body: dict[str, Any] = {}
+            if filter_params:
+                query_body["filter"] = filter_params
+            if start_cursor:
+                query_body["start_cursor"] = start_cursor
+            response = self.client.request(
+                path=f"databases/{database_id}/query",
+                method="POST",
+                body=query_body,
+            )
+            results.extend(response.get("results", []) or [])
+            if not response.get("has_more"):
+                break
+            start_cursor = response.get("next_cursor")
+        return results
+
+    def _ensure_daily_chat_log_page(self, database_id: str, date_str: str) -> str:
+        page_title = f"{date_str} 对话实录"
+        cached = self._daily_chat_log_page_cache.get(page_title)
+        if cached:
+            return cached
+
+        title_prop_name = self._resolve_title_property_name(database_id)
+        pages = self._query_database_sync(
+            database_id=database_id,
+            filter_params={"property": title_prop_name, "title": {"equals": page_title}},
+        )
+        if pages:
+            page_id = pages[0].get("id")
+            if isinstance(page_id, str) and page_id:
+                self._daily_chat_log_page_cache[page_title] = page_id
+                return page_id
+
+        page = self.client.pages.create(
+            parent={"database_id": database_id},
+            properties={title_prop_name: {"title": self._build_rich_text(page_title)}},
+        )
+        page_id = page.get("id")
+        if not isinstance(page_id, str) or not page_id:
+            raise RuntimeError("Notion returned empty page id for daily chat log page")
+        self._daily_chat_log_page_cache[page_title] = page_id
+        return page_id
+
+    def _append_to_daily_chat_log_sync(
+        self,
+        role: str,
+        content: str,
+        now_local: Optional[datetime.datetime] = None,
+    ) -> None:
+        database_id = (
+            (os.getenv("NOTION_CHAT_LOGS_DB_ID") or os.getenv("NOTION_CHAT_LOGS_DATABASE_ID") or "")
+            .strip()
+        )
+        if not database_id:
+            raise ValueError("NOTION_CHAT_LOGS_DB_ID environment variable is not set")
+
+        tz = self._load_profile_timezone()
+        now = now_local or datetime.datetime.now(tz)
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M:%S")
+
+        role_norm = (role or "").strip()
+        if role_norm not in {"User", "Bot"}:
+            role_norm = "User" if role_norm.lower() == "user" else "Bot" if role_norm.lower() == "bot" else "User"
+
+        raw_content = content if content is not None else ""
+
+        with self._daily_chat_log_lock:
+            page_id = self._ensure_daily_chat_log_page(database_id, date_str)
+
+        prefix = f"{role_norm} [{time_str}]"
+        overhead = len(prefix) + 2
+        chunk_max = max(200, 1800 - overhead)
+        chunks = self._split_text_for_notion(raw_content, max_len=chunk_max)
+
+        children: list[dict] = []
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                rich_text = self._build_chatlog_rich_text(role_norm, time_str, chunk)
+            else:
+                rich_text = self._build_rich_text(chunk)
+            children.append(
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": rich_text},
+                }
+            )
+
+        self.client.blocks.children.append(
+            block_id=page_id,
+            children=children,
+        )
+
+    def append_to_daily_chat_log(self, role: str, content: str) -> None:
+        def _run():
+            try:
+                self._append_to_daily_chat_log_sync(role=role, content=content)
+            except Exception as e:
+                logger.error(f"Failed to append daily chat log: {e}")
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._daily_chat_log_executor.submit(_run)
+            return
+
+        loop.run_in_executor(self._daily_chat_log_executor, _run)
 
     def append_to_inbox(
         self,

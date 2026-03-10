@@ -13,7 +13,6 @@
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，调用统一回顾引擎生成 `daily/weekly` 回顾 Markdown，并通过 Telegram 推送。
     - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
-        - **零摩擦碎片捕获 (Quick Dump)**: 通过 `quick_dump_skill.save_reflection_record` 将用户原话写入 Notion Inbox 数据库（`NOTION_INBOX_DATABASE_ID`），作为下一次 `SyncNotionJob` 的摄取入口，保持 Notion 作为 Source of Truth。
         - **动态画像演进 (Profile Evolution)**: 通过 `update_profile_skill.update_profile_attribute` 修改 `config/profile.yaml` 的可演进字段，并将每次变更追加写入 `notion_output/profile_changelog.jsonl` 作为审计与认知演化日志。
 
 ## 2. 核心模块拓扑 (Module Topology)
@@ -32,7 +31,6 @@
 
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
--   **`quick_dump_skill.py`**: Quick Dump 技能。提供 `save_reflection_record` 工具：一旦用户进行自我记录/回答灵魂拷问/表达感悟/倾诉/灵感/日记，必须调用该工具把原话写入 Notion Inbox；内置短窗口去重，避免重复落库。
 -   **`update_profile_skill.py`**: Profile 动态更新技能。提供 `update_profile_attribute(yaml_path, new_value, reason, category)`：使用点语法定位并更新画像字段；对静态锁定字段强制拒绝；写回后追加审计日志到 `profile_changelog.jsonl`。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
@@ -80,12 +78,6 @@ status: "Done"
 
 ## 3. 灵魂拷问 (Socratic Questions)
 ```
-
-### Quick Dump Inbox（Notion Inbox Database）
-用于承接 Telegram 的“碎片捕获”和“灵魂拷问回复”，保证 Notion 是唯一事实来源（Source of Truth）。
-- 写入：`TelegramBotRunner` 通过 `quick_dump_skill.save_reflection_record` → `NotionService.append_to_inbox` 创建 Page
-- 同步：`SyncNotionJob` 在下一轮增量同步时拉取该 Page 并落盘为 `notion_output/*.md`
-- 配置：通过环境变量 `NOTION_INBOX_DATABASE_ID` 指定目标数据库
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)
