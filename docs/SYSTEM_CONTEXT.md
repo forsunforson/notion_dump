@@ -41,6 +41,11 @@
 -   **`prompt_manager.py`**: 提示词工程管理。维护“苏格拉底回顾” System/User Prompt（`SOCRATIC_REVIEW_SYSTEM_PROMPT` / `SOCRATIC_REVIEW_USER_PROMPT`），并提供 `build_socratic_review_prompt(profile, metrics_trend, notes_content)` 生成 messages；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
 
 ### 工具链 (Utilities - `app/utils/`)
+> **复用原则 (Reuse Principles)**:
+> 1. **优先复用**: 在实现新功能时，优先检查 `app/utils/` 是否已有现成工具（特别是 ID 处理、时区、文本切分、Frontmatter 解析）。
+> 2. **纯函数优先**: 工具类函数应尽量设计为无副作用的纯函数（Pure Functions），便于测试和复用。
+> 3. **避免逻辑漂移**: 核心业务逻辑（如“如何判定一篇文档是日记”）应收敛在 `app/utils` 或 `app/services` 中，避免在多个 Job 中重复实现导致规则不一致。
+
 -   **`notion_converter.py`**: 核心转换器。负责 Notion Block -> Markdown 的渲染，以及 Page Properties -> YAML Frontmatter 的映射。
 -   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
 -   **`plain.py`**: 通用数据清洗工具。提供 `to_plain` 函数，递归将 ruamel.yaml 对象转换为原生 Python dict/list。
