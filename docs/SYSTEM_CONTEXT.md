@@ -37,6 +37,7 @@
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
 -   **`update_profile_skill.py`**: Profile 动态更新技能。提供 `update_profile_attribute(yaml_path, new_value, reason, category)`：使用点语法定位并更新画像字段；对静态锁定字段强制拒绝；写回后追加审计日志到 `profile_changelog.jsonl`。
+-   **`update_portfolio_skill.py`**: 投资交易记录与资产负债表更新技能。提供 `log_portfolio_transaction(ticker, action, price, quantity, cash_impact, currency, notes)`：先写入 Notion Portfolio Ledger，再以**双分录**方式原子更新 `config/profile.yaml` 中的 `stock_count` 与 `checking account` 余额（BUY 扣现金加股票；SELL 加现金减股票；DIVIDEND 只加现金）。成功后向 `profile_changelog.jsonl` 追加审计事件（股票与现金可能各一条）。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
@@ -133,6 +134,7 @@ custom_traits:
 
 ### Profile 演化日志 (`notion_output/profile_changelog.jsonl`)
 每次通过 `update_profile_attribute` 成功写回 `profile.yaml` 后，必须追加一条 JSONL 记录（UTC 时间戳），用于追踪用户目标、偏好与认知的演变过程。
+此外，投资交易工具在更新 `balance_sheet_structure` 时也会写入该日志：若同时影响股票持仓与现金余额，会追加两条审计事件。
 ```json
 {
   "timestamp": "2026-03-06T12:00:00Z",
