@@ -133,9 +133,10 @@ show_main_menu() {
     echo "5. 🗑️  Remove Schedule"
     echo "6. 👀 View Logs (tail -f)"
     echo "7. 🌍 Settings (Timezone: $USER_TZ)"
-    echo "8. ❌ Exit"
+    echo "8. 💼 View Balance Sheet"
+    echo "9. ❌ Exit"
     echo "=========================================="
-    echo -n "Select an option [1-8]: "
+    echo -n "Select an option [1-9]: "
 }
 
 show_bot_menu() {
@@ -229,9 +230,10 @@ show_run_menu() {
     echo "2. 🌅 Morning Routine (Morning greeting)"
     echo "3. 📊 Weekly Review (Weekly summary)"
     echo "4. 🤖 Telegram Bot (Run in foreground)"
-    echo "5. ◀️  Back to Main Menu"
+    echo "5. 💹 Portfolio Sync (Sync prices)"
+    echo "6. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select a task to run [1-5]: "
+    echo -n "Select a task to run [1-6]: "
 }
 
 show_schedule_menu() {
@@ -242,10 +244,11 @@ show_schedule_menu() {
     echo "1. 🔄 Setup Sync Task (Data sync)"
     echo "2. 🌅 Setup Morning Routine"
     echo "3. 📊 Setup Weekly Review"
-    echo "4. ✨ Quick Setup (Recommended)"
-    echo "5. ◀️  Back to Main Menu"
+    echo "4. 💹 Setup Portfolio Sync"
+    echo "5. ✨ Quick Setup (Recommended)"
+    echo "6. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select an option [1-5]: "
+    echo -n "Select an option [1-6]: "
 }
 
 run_task_now() {
@@ -268,7 +271,8 @@ run_now_submenu() {
             2) run_task_now "morning" "Morning Routine" ;;
             3) run_task_now "weekly" "Weekly Review" ;;
             4) run_task_now "bot" "Telegram Bot" ;;
-            5) return ;;
+            5) run_task_now "portfolio" "Portfolio Sync" ;;
+            6) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
@@ -357,6 +361,35 @@ schedule_weekly_task() {
     echo "   Command: $cron_job"
 }
 
+schedule_portfolio_task() {
+    echo ""
+    echo "📅 Setting up Portfolio Sync..."
+    echo "⚠️  Current system time: $(date)"
+    echo ""
+    echo "This task will fetch market prices and write total_equity_value_cny to notion_output/metrics.jsonl."
+    echo ""
+    read -p "Enter hour to run (0-23): " hour
+    read -p "Enter minute to run (0-59): " minute
+    
+    if ! [[ "$hour" =~ ^[0-9]+$ ]] || [ "$hour" -lt 0 ] || [ "$hour" -gt 23 ]; then
+        echo "❌ Invalid hour. Please enter a number between 0 and 23."
+        return
+    fi
+    if ! [[ "$minute" =~ ^[0-9]+$ ]] || [ "$minute" -lt 0 ] || [ "$minute" -gt 59 ]; then
+        echo "❌ Invalid minute. Please enter a number between 0 and 59."
+        return
+    fi
+    
+    cron_job="$minute $hour * * * $RUN_TASK_SCRIPT --job portfolio >> $LOGS_DIR/cron_portfolio.log 2>&1"
+    
+    (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job portfolio"; echo "$cron_job") | crontab -
+    
+    echo ""
+    echo "✅ Portfolio sync scheduled successfully!"
+    echo "   Schedule: Daily at $(printf '%02d:%02d' "$hour" "$minute")"
+    echo "   Command: $cron_job"
+}
+
 quick_setup() {
     echo ""
     echo "✨ Quick Setup - Recommended Configuration"
@@ -366,6 +399,7 @@ quick_setup() {
     echo "  1. 🔄 Sync: Every 4 hours"
     echo "  2. 🌅 Morning: Daily at 06:00 ($USER_TZ)"
     echo "  3. 📊 Weekly: Sunday at 20:00 ($USER_TZ)"
+    echo "  4. 💹 Portfolio: Daily at 18:00 ($USER_TZ)"
     echo ""
     read -p "Continue with quick setup? [y/N]: " confirm
     
@@ -378,7 +412,8 @@ quick_setup() {
     
     CRON_JOB="0 */4 * * * $RUN_TASK_SCRIPT --job sync >> $LOGS_DIR/cron_sync.log 2>&1
 0 6 * * * $RUN_TASK_SCRIPT --job morning >> $LOGS_DIR/cron_morning.log 2>&1
-0 20 * * 0 $RUN_TASK_SCRIPT --job weekly >> $LOGS_DIR/cron_weekly.log 2>&1"
+0 20 * * 0 $RUN_TASK_SCRIPT --job weekly >> $LOGS_DIR/cron_weekly.log 2>&1
+0 18 * * * $RUN_TASK_SCRIPT --job portfolio >> $LOGS_DIR/cron_portfolio.log 2>&1"
     
     (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
     
@@ -389,6 +424,7 @@ quick_setup() {
     echo "  🔄 Sync: Every 4 hours"
     echo "  🌅 Morning: Daily at 06:00"
     echo "  📊 Weekly: Sunday at 20:00"
+    echo "  💹 Portfolio: Daily at 18:00"
 }
 
 schedule_submenu() {
@@ -399,8 +435,9 @@ schedule_submenu() {
             1) schedule_sync_task ;;
             2) schedule_morning_task ;;
             3) schedule_weekly_task ;;
-            4) quick_setup ;;
-            5) return ;;
+            4) schedule_portfolio_task ;;
+            5) quick_setup ;;
+            6) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
@@ -424,6 +461,8 @@ view_schedule() {
                 echo "  🌅 Morning: $line"
             elif echo "$line" | grep -q "job weekly"; then
                 echo "  📊 Weekly: $line"
+            elif echo "$line" | grep -q "job portfolio"; then
+                echo "  💹 Portfolio: $line"
             else
                 echo "  ❓ Other: $line"
             fi
@@ -446,10 +485,11 @@ unschedule_task() {
     echo "1. Remove Sync Task"
     echo "2. Remove Morning Routine"
     echo "3. Remove Weekly Review"
-    echo "4. Remove All Tasks"
-    echo "5. ◀️  Back to Main Menu"
+    echo "4. Remove Portfolio Sync"
+    echo "5. Remove All Tasks"
+    echo "6. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select an option [1-5]: "
+    echo -n "Select an option [1-6]: "
     read choice
     
     case $choice in
@@ -478,6 +518,14 @@ unschedule_task() {
             fi
             ;;
         4)
+            if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT --job portfolio"; then
+                (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job portfolio") | crontab -
+                echo "✅ Portfolio sync removed from schedule."
+            else
+                echo "ℹ️  No portfolio sync found."
+            fi
+            ;;
+        5)
             if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT"; then
                 (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT") | crontab -
                 echo "✅ All tasks removed from schedule."
@@ -485,7 +533,7 @@ unschedule_task() {
                 echo "ℹ️  No scheduled tasks found."
             fi
             ;;
-        5)
+        6)
             return
             ;;
         *)
@@ -506,6 +554,38 @@ view_logs() {
     fi
 }
 
+view_balance_sheet() {
+    echo ""
+    echo "💼 Balance Sheet (from config/profile.yaml)"
+    echo "=========================================="
+
+    local profile_path="$PROJECT_ROOT/config/profile.yaml"
+    if [ ! -f "$profile_path" ]; then
+        echo "❌ profile.yaml not found: $profile_path"
+        return
+    fi
+
+    local py=""
+    local candidates=(
+        "$PROJECT_ROOT/venv/bin/python"
+        "$PROJECT_ROOT/.venv/bin/python"
+        "$(command -v python3)"
+    )
+    for c in "${candidates[@]}"; do
+        if [ -n "$c" ] && [ -x "$c" ]; then
+            py="$c"
+            break
+        fi
+    done
+    if [ -z "$py" ]; then
+        echo "❌ python3 not found."
+        return
+    fi
+
+    "$py" -m app.cli.balance_sheet --profile-path "$profile_path"
+    echo "=========================================="
+}
+
 # Main loop
 while true; do
     show_main_menu
@@ -518,7 +598,8 @@ while true; do
         5) unschedule_task ;;
         6) view_logs ;;
         7) select_timezone ;;
-        8) echo "Bye! 👋"; exit 0 ;;
+        8) view_balance_sheet ;;
+        9) echo "Bye! 👋"; exit 0 ;;
         *) echo "❌ Invalid option. Please try again." ;;
     esac
 done

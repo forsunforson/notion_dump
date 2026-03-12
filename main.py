@@ -154,6 +154,16 @@ def _parse_yyyy_mm_dd(date_str: str) -> datetime.date:
     return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
 
 
+def run_portfolio_job() -> None:
+    from app.jobs.portfolio_sync_job import PortfolioSyncJob
+
+    logger.info("Starting portfolio sync job...")
+    rc = PortfolioSyncJob().run()
+    if rc != 0:
+        sys.exit(rc)
+    logger.info("Portfolio sync job completed.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ChronoFold - AI-powered knowledge management assistant",
@@ -164,6 +174,7 @@ Examples:
   python main.py --job sync --force            # Force full sync
   python main.py --job morning                 # Run morning routine
   python main.py --job weekly                  # Run weekly review
+  python main.py --job portfolio               # Sync portfolio prices and write metric
   python main.py --job analyze                 # Analyze all files in notion_output/
   python main.py --job analyze file1.md file2.md  # Analyze specific files
   python main.py --job review --type daily     # Generate yesterday review and save
@@ -176,9 +187,9 @@ Examples:
     
     parser.add_argument(
         "--job",
-        choices=["sync", "morning", "weekly", "analyze", "review", "bot"],
+        choices=["sync", "morning", "weekly", "portfolio", "analyze", "review", "bot"],
         default="sync",
-        help="Job type to run: sync (default), morning, weekly, analyze, review, or bot"
+        help="Job type to run: sync (default), morning, weekly, portfolio, analyze, review, or bot"
     )
     parser.add_argument(
         "--force", "--full",
@@ -240,6 +251,8 @@ Examples:
         asyncio.run(run_morning_job())
     elif args.job == "weekly":
         asyncio.run(run_weekly_job())
+    elif args.job == "portfolio":
+        run_portfolio_job()
     elif args.job == "analyze":
         asyncio.run(run_analyze_job(args.files))
     elif args.job == "review":

@@ -7,9 +7,10 @@
 ### 核心数据流 (Core Data Flow)
 1.  **Ingest (摄取)**: `SyncNotionJob` 定时从 Notion API 拉取变更页面（Incremental Sync），通过 `NotionToMarkdown` 转换为带有 YAML Frontmatter 的标准 Markdown 文件，存储于 `notion_output/`。
 2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并 Upsert 写入 `notion_output/metrics.jsonl`。该阶段不生成主观总结/简报。
-3.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
-4.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
-5.  **Interact (交互)**:
+3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `yfinance` 拉取价格与汇率，计算当日权益总市值（CNY），并 Upsert 写入 `notion_output/metrics.jsonl`，为“投资偏离警告”提供硬数据底座。
+4.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
+5.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
+6.  **Interact (交互)**:
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，调用统一回顾引擎生成 `daily/weekly` 回顾 Markdown，并通过 Telegram 推送。
     - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
@@ -18,16 +19,20 @@
 ## 2. 核心模块拓扑 (Module Topology)
 
 ### 入口与调度 (Entry & Orchestration)
--   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+可选指标抽取), `analyze` (仅指标抽取), `review` (生成回顾报告并存盘，支持 daily/weekly/monthly/custom), `bot` (启动对话服务), `morning/weekly` (生成对应回顾并推送 Telegram) 等指令。
+-   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+可选指标抽取), `analyze` (仅指标抽取), `review` (生成回顾报告并存盘，支持 daily/weekly/monthly/custom), `portfolio` (同步持仓价格并写入指标), `bot` (启动对话服务), `morning/weekly` (生成对应回顾并推送 Telegram) 等指令。
 -   **`deploy/run_task.sh`**: 生产环境执行包装器。负责：1. `git pull` 自动更新代码；2. 激活 venv；3. 执行 `main.py`；4. 执行 Rclone 备份；5. 进程锁管理。
--   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务。
+-   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务；并提供资产负债表/持仓估值查看，以及 Portfolio Sync 的定时任务管理入口。
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
 -   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 Upsert 到 `notion_output/metrics.jsonl`。
+-   **`portfolio_sync_job.py`**: 投资组合同步作业。读取画像中静态持仓，拉取行情/汇率，生成当日 `total_equity_value_cny` 并写入 `metrics.jsonl`（幂等覆盖当日记录）。
 -   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_socratic_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
 -   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
 -   **`routines.py`**: 轻量分发层。执行 `morning/weekly` 时调用统一回顾引擎生成 Markdown，并通过 `TelegramService` 推送消息。
+
+### 维护工具 (Ops CLI - `app/cli/`)
+-   **`balance_sheet.py`**: 运维查看工具。读取 `config/profile.yaml` 输出资产负债表结构；可选拉取 `yfinance` 实时价格与 `XXCNY=X` 汇率，计算并展示持仓的实时 CNY 估值。
 
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
