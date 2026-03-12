@@ -48,6 +48,16 @@ class _DummyCompletions:
         return self._responses.pop(0)
 
 
+class _RaisingCompletions:
+    def __init__(self, exc: Exception):
+        self.exc = exc
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        raise self.exc
+
+
 class _DummyChat:
     def __init__(self, completions):
         self.completions = completions
@@ -123,3 +133,17 @@ class TestAskWithToolsMessages(unittest.IsolatedAsyncioTestCase):
         second_messages = completions.calls[1]["messages"]
         self.assertTrue(any(m.get("role") == "tool" and m.get("tool_call_id") == "tc_bad" for m in second_messages))
 
+    async def test_llm_exception_is_raised(self):
+        from app.services.llm_service import LLMService
+
+        completions = _RaisingCompletions(RuntimeError("boom"))
+
+        llm = LLMService()
+        llm.client = _DummyClient(_DummyChat(completions))
+
+        with self.assertRaises(RuntimeError):
+            await llm.ask_with_tools_messages(
+                messages=[{"role": "user", "content": "x"}],
+                tools=[],
+                tool_map={},
+            )

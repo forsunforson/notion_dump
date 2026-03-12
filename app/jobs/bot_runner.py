@@ -111,42 +111,6 @@ class TelegramBotRunner:
             user_prompt_parts.append(f"<user_message>\n{user_text}\n</user_message>")
             user_prompt = "\n\n".join(user_prompt_parts).strip()
 
-            async def infer_fallback_action(user_msg: str, reply_msg: str) -> dict:
-                system_p = "\n".join(
-                    [
-                        "你是一个严格的意图路由器，只输出 JSON。",
-                        "你的任务是判断：本轮用户输入在工具未被调用时，是否需要强制调用某个工具，或直接回答。",
-                        "",
-                        "可选意图 intent:",
-                        "- profile_update: 用户在变更目标/重心/偏好/理念/项目，或新增 custom_traits。",
-                        "- query: 用户只是查询/核对信息，不应触发任何写操作。",
-                        "- none: 其他情况，不做任何兜底动作。",
-                        "",
-                        "如果 intent=profile_update，必须给出 profile_update 对象：",
-                        "{yaml_path, new_value, reason, category}。",
-                        "",
-                        "yaml_path 约束：只能写入这些区域：",
-                        "- recent_focus.weekly_goal/monthly_goal/quarterly_goal/yearly_goal/current_projects",
-                        "- investment_philosophy",
-                        "- physical_baseline.primary_goals",
-                        "- preferences.<any>",
-                        "- custom_traits.<any>",
-                        "",
-                        "严禁写入：name, personal_info.birth_date, gender, height, timezone。",
-                        "",
-                        "如果用户在 reply_to_message 上说“把这个目标改为年度目标/季度/每月/每周”，允许从 reply_to_message 中抽取目标文本作为 new_value。",
-                        "reason 必须用一句话概括用户底层动机。",
-                    ]
-                ).strip()
-                user_p = "\n\n".join(
-                    [
-                        f"<reply_to_message>\n{reply_msg or ''}\n</reply_to_message>",
-                        f"<user_message>\n{user_msg or ''}\n</user_message>",
-                    ]
-                ).strip()
-                out = await self.llm.ask_json(system_p, user_p)
-                return out if isinstance(out, dict) else {}
-
             executed = {"upsert_daily_metric": 0, "update_profile_attribute": 0, "log_portfolio_transaction": 0}
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
@@ -174,27 +138,6 @@ class TelegramBotRunner:
 
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
-            if sum(executed.values()) == 0:
-                fallback = await infer_fallback_action(user_text, reply_to_text)
-                intent = (fallback.get("intent") or "").strip()
-                if intent == "profile_update" and isinstance(fallback.get("profile_update"), dict):
-                    pu = fallback.get("profile_update") or {}
-                    yaml_path = pu.get("yaml_path")
-                    new_value = pu.get("new_value")
-                    reason = pu.get("reason")
-                    category = pu.get("category") or "update"
-                    if isinstance(yaml_path, str) and yaml_path.strip() and reason is not None:
-                        result = wrapped_update_profile_attribute(
-                            yaml_path=yaml_path.strip(),
-                            new_value=new_value,
-                            reason=str(reason),
-                            category=str(category),
-                        )
-                        if isinstance(result, str) and result.startswith("OK:"):
-                            reply_text = "底层代码已重写：目标与偏好已对齐。"
-                        else:
-                            reply_text = result or "Error updating profile."
-
             new_history = [*history, {"role": "user", "content": user_text}, {"role": "assistant", "content": reply_text or ""}]
             self._history_by_chat[chat_id] = new_history[-20:]
 
@@ -206,11 +149,12 @@ class TelegramBotRunner:
             await update.message.reply_text(final_reply)
             logger.info(f"Sent reply to {user_name}")
 
-        except Exception as e:
-            logger.error(f"Error handling message: {e}")
-            final_reply = "抱歉，我的大脑刚刚走神了，请再说一遍"
+        except Exception:
+            logger.exception("Error handling message")
+            final_reply = "请求失败：大模型调用异常或处理链路中断。"
             self.chat_log.log_message(role="Bot", content=final_reply)
             await update.message.reply_text(final_reply)
+            raise
 
     def start_polling(self):
         app = ApplicationBuilder().token(self.token).build()

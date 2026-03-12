@@ -3,7 +3,10 @@ import json
 import logging
 import inspect
 from typing import Any
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except Exception:
+    AsyncOpenAI = None
 
 from app.utils.local_debug_logger import LocalDebugLogger
 
@@ -75,11 +78,16 @@ class LLMService:
         
         if not self.api_key:
             raise ValueError("AI_API_KEY environment variable is not set")
-        
-        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+
+        if AsyncOpenAI is None:
+            self.client = None
+        else:
+            self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         logger.info(f"LLMService initialized with model: {self.model}")
 
     async def ask_json(self, system_prompt: str, user_prompt: str) -> dict:
+        if self.client is None:
+            raise RuntimeError("Missing dependency: openai")
         logger.info(f"[LLM Request] Model: {self.model}")
         logger.info(f"[LLM Request] System prompt: {system_prompt[:200]}...")
         logger.info(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
@@ -113,6 +121,8 @@ class LLMService:
             return {}
 
     async def ask_text(self, system_prompt: str, user_prompt: str, max_tokens: int = 800) -> str:
+        if self.client is None:
+            raise RuntimeError("Missing dependency: openai")
         logger.info(f"[LLM Request] Model: {self.model}")
         logger.info(f"[LLM Request] System prompt: {system_prompt[:200]}...")
         logger.info(f"[LLM Request] User prompt: {user_prompt[:1000]}...")
@@ -156,6 +166,8 @@ class LLMService:
         tool_map: dict,
         tool_choice: str | dict = "auto",
     ) -> tuple[str, int]:
+        if self.client is None:
+            raise RuntimeError("Missing dependency: openai")
         logger.info(f"[LLM Request] Model: {self.model} (with tools, messages)")
 
         tool_calls_executed = 0
@@ -325,7 +337,7 @@ class LLMService:
                     logger.info(f"[LLM Response] {content[:2000]}...")
                     return content, tool_calls_executed
         except Exception as e:
-            logger.error(f"Error in ask_with_tools_messages: {e}")
+            logger.exception("Error in ask_with_tools_messages")
             dbg.emit(
                 "llm.tools.error",
                 {
@@ -337,4 +349,4 @@ class LLMService:
                     "tail": [_summarize_msg(m) for m in local_messages[-12:]],
                 },
             )
-            return "Sorry, I encountered an error while processing your request with tools.", tool_calls_executed
+            raise

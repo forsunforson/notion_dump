@@ -238,6 +238,31 @@ Examples:
         level=getattr(logging, args.log_level),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+
+    if args.job == "bot":
+        try:
+            from logging.handlers import RotatingFileHandler
+
+            logs_dir = Path(__file__).resolve().parent / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            log_path = (logs_dir / "bot.log").resolve()
+            root_logger = logging.getLogger()
+            has_same_file_handler = any(
+                isinstance(h, RotatingFileHandler) and Path(getattr(h, "baseFilename", "")).resolve() == log_path
+                for h in root_logger.handlers
+            )
+            if not has_same_file_handler:
+                file_handler = RotatingFileHandler(
+                    str(log_path),
+                    maxBytes=10 * 1024 * 1024,
+                    backupCount=5,
+                    encoding="utf-8",
+                )
+                file_handler.setLevel(logging.ERROR)
+                file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+                root_logger.addHandler(file_handler)
+        except Exception:
+            logger.exception("Failed to initialize bot file logging")
     
     logger.info(f"Running job: {args.job}")
     
