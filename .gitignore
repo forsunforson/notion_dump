@@ -224,3 +224,5 @@ notion_output/
 
 # User private configuration
 config/profile.yaml
+
+.trae/
