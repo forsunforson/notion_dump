@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -370,28 +369,10 @@ class PromptManager:
 
     def get_review_system_prompt(self, review_type: str) -> str:
         rt = (review_type or "").strip().lower()
-        env_key = f"REVIEW_SYSTEM_PROMPT_{rt.upper()}"
-        override = os.getenv(env_key, "").strip()
-        if override:
-            return self._append_soul(override)
-
-        legacy = os.getenv("PERIODIC_REVIEW_SYSTEM_PROMPT", "").strip()
-        if legacy:
-            return self._append_soul(legacy)
-
         return self._append_soul(self.REVIEW_SYSTEM_PROMPTS.get(rt) or self.DEFAULT_REVIEW_SYSTEM_PROMPT)
 
     def get_review_user_prompt(self, review_type: str) -> str:
         rt = (review_type or "").strip().lower()
-        env_key = f"REVIEW_USER_PROMPT_{rt.upper()}"
-        override = os.getenv(env_key, "").strip()
-        if override:
-            return override
-
-        legacy = os.getenv("PERIODIC_REVIEW_USER_PROMPT", "").strip()
-        if legacy:
-            return legacy
-
         return self.REVIEW_USER_PROMPTS.get(rt) or self.DEFAULT_REVIEW_USER_PROMPT
 
     def build_review_prompt(
@@ -410,9 +391,6 @@ class PromptManager:
         ]
 
     def get_metrics_extraction_system_prompt(self) -> str:
-        override = os.getenv("METRICS_EXTRACTION_SYSTEM_PROMPT", "").strip()
-        if override:
-            return override
         return METRICS_EXTRACTION_SYSTEM_PROMPT
 
     def build_metrics_extraction_prompts(self, *, raw_content: str) -> tuple[str, str]:
@@ -430,17 +408,7 @@ class PromptManager:
         time_str: str,
         custom_traits: dict | None,
     ) -> str:
-        override = os.getenv("TELEGRAM_BOT_SYSTEM_PROMPT", "").strip()
-        if override:
-            return override.format(
-                user_name=(user_name or "").strip(),
-                primary_goals=(primary_goals or "").strip(),
-                timezone_str=(timezone_str or "").strip(),
-                today_str=(today_str or "").strip(),
-                time_str=(time_str or "").strip(),
-                custom_traits_yaml=self._format_custom_traits(custom_traits),
-            )
-        return TELEGRAM_BOT_SYSTEM_PROMPT_TEMPLATE.format(
+        base_prompt = TELEGRAM_BOT_SYSTEM_PROMPT_TEMPLATE.format(
             user_name=(user_name or "").strip(),
             primary_goals=(primary_goals or "").strip(),
             timezone_str=(timezone_str or "").strip(),
@@ -448,6 +416,7 @@ class PromptManager:
             time_str=(time_str or "").strip(),
             custom_traits_yaml=self._format_custom_traits(custom_traits),
         )
+        return self._append_soul(base_prompt)
 
     def _format_custom_traits(self, custom_traits: dict | None) -> str:
         if not custom_traits:
