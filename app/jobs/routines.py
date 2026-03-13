@@ -4,6 +4,7 @@ import asyncio
 import re
 from app.services.telegram_service import TelegramService
 from app.services.llm_service import LLMService
+from app.services.prompt_manager import PromptManager
 from app.jobs.periodic_review import PeriodicReviewJob
 from app.utils.context_fetcher import ContextFetcher
 from app.utils.text_chunking import split_text_smart
@@ -16,6 +17,7 @@ class DailyRoutines:
         self.telegram = TelegramService()
         self.llm = LLMService()
         self.fetcher = ContextFetcher()
+        self.prompt_manager = PromptManager()
     
     async def morning_routine(self) -> bool:
         try:
@@ -95,31 +97,16 @@ class DailyRoutines:
         else:
             metrics_text = "暂无近期身体状态数据。"
 
-        system_prompt = f"""你是一个顶级的私人教练。用户的名字是 {user_name}。
-你的任务是为用户提供【今日专属训练计划】。
-
-【核心原则】
-1. 动态调整：仔细阅读用户过去 7 天的真实训练记录。即使用户的基准目标是「{routine_desc}」，基准计划是「{routine_pattern}」，你也必须根据他最近的实际情况推断今天最合理的训练部位（推/拉/腿/恢复）。
-2. 证据约束：绝对不要捏造用户没有做过的训练。训练历史缺失时，先给出“保守且通用”的方案（如动态恢复/低容量），并说明理由。
-3. 简洁落地：输出必须清晰可执行，避免套话。
-
-【输出要求（Markdown）】
-- 标题：🏋️ 今日训练计划（含日期）
-- 简要点评（1句话）：评价最近训练执行情况
-- 今日重点（1句话）：明确今天练什么
-- 计划列表：用 Markdown 列表列出动作与组数/次数/强度建议
-- 结束：给出 1 条“最关键的注意点”（只允许 1 条）"""
-
-        user_prompt = f"""当地时间：{current_date}，{current_weekday}
-用户核心目标：{primary_goals}
-
-【过去 7 天实际训练记录】
-{recent_workout_logs}
-
-【过去 3 天量化指标（参考）】
-{metrics_text}
-
-请输出今日训练计划。"""
+        system_prompt, user_prompt = self.prompt_manager.build_workout_plan_prompts(
+            user_name=user_name,
+            routine_desc=routine_desc,
+            routine_pattern=routine_pattern,
+            current_date=current_date,
+            current_weekday=current_weekday,
+            primary_goals=primary_goals,
+            recent_workout_logs=recent_workout_logs,
+            metrics_text=metrics_text,
+        )
 
         text = await self.llm.ask_text(system_prompt, user_prompt, max_tokens=800)
         return (text or "").strip()

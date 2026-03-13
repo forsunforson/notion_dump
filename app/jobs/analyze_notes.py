@@ -65,31 +65,7 @@ class AnalyzeNotesJob:
         if not is_diary:
             return None
 
-        system_prompt = "你是一个结构化信息抽取器。你只负责从文本中抽取客观指标，禁止主观总结与发挥。"
-        user_prompt = f"""请从以下日记内容中抽取 daily_metrics，并仅以 JSON 返回，不要输出任何额外文本。
-
-规则：
-1) 仅从日记内容中提取；如果未提及则返回 null，严禁捏造。
-2) energy_level 为 1-10 的整数；workout_volume_score 为 1-10 的整数；weight 为 kg 的浮点数。
-3) sleep_quality 仅限 "good" / "normal" / "poor" 三选一；mood_tag 用一个英文单词。
-4) date 不需要填写，系统会注入。
-
-JSON 结构：
-{{
-  "daily_metrics": {{
-    "date": null,
-    "weight": null,
-    "energy_level": null,
-    "sleep_quality": null,
-    "workout_volume_score": null,
-    "mood_tag": null
-  }}
-}}
-
-<diary_content>
-{raw_content}
-</diary_content>
-"""
+        system_prompt, user_prompt = self.prompt_manager.build_metrics_extraction_prompts(raw_content=raw_content)
 
         analysis_dict = await self.llm.ask_json(system_prompt, user_prompt)
         if not analysis_dict:

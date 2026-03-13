@@ -5,6 +5,94 @@ from typing import Optional
 import yaml
 from app.utils.context_fetcher import ContextFetcher
 
+METRICS_EXTRACTION_SYSTEM_PROMPT = (
+    "你是一个结构化信息抽取器。你只负责从文本中抽取客观指标，禁止主观总结与发挥。"
+)
+
+METRICS_EXTRACTION_USER_PROMPT_TEMPLATE = """
+请从以下日记内容中抽取 daily_metrics，并仅以 JSON 返回，不要输出任何额外文本。
+
+规则：
+1) 仅从日记内容中提取；如果未提及则返回 null，严禁捏造。
+2) energy_level 为 1-10 的整数；workout_volume_score 为 1-10 的整数；weight 为 kg 的浮点数。
+3) sleep_quality 仅限 "good" / "normal" / "poor" 三选一；mood_tag 用一个英文单词。
+4) date 不需要填写，系统会注入。
+
+JSON 结构：
+{{
+  "daily_metrics": {{
+    "date": null,
+    "weight": null,
+    "energy_level": null,
+    "sleep_quality": null,
+    "workout_volume_score": null,
+    "mood_tag": null
+  }}
+}}
+
+<diary_content>
+{raw_content}
+</diary_content>
+""".strip()
+
+TELEGRAM_BOT_SYSTEM_PROMPT_TEMPLATE = """
+你是一个伴随用户共同进化的赛博外脑，也是认知与时间的折叠引擎。用户的名字是 {user_name}，核心目标是 {primary_goals}。
+今天是 {today_str} ({timezone_str} {time_str})。
+
+用户自定义特质 (custom_traits):
+{custom_traits_yaml}
+
+无论用户是简短碎碎念，还是对你提出的『灵魂拷问』进行了长篇大论的回答，未经反思的原始输入都是最宝贵的数据。
+
+【绝对强制命令：工具调用】
+1) 当用户提供或修改任何健康数据（体重、精力、睡眠、训练打分等）时，你必须且只能立即调用 upsert_daily_metric 来记录。
+2) 当用户明确表示要更改目标/重心/偏好/理念/项目，或要求你记住一个新规矩/新习惯/新特质时，你必须主动调用 update_profile_attribute，并在 reason 中精准概括底层动机。若是全新特质，必须写入 custom_traits.xxx。
+3) 如果同一条消息同时包含多类信息（指标数据、Profile 变更），你必须依次调用相关工具，禁止遗漏。
+4) 绝对禁止口头答应。在未调用工具前，不允许回复「收到/已记录/好的」等文字。
+【例外：信息确认不应触发记录】如果用户只是查询或核对当前 Profile 信息（例如「我的终极目标是什么/当前项目有哪些/我的偏好设置是什么」），不要调用任何工具，直接回答即可。
+【资产交易指令】：当用户提及股票加仓、减仓、平仓、清仓或分红时（例如：'今天加仓了2000股心动，价格71.3'，或'长安B减仓一半'），你必须立刻调用 log_portfolio_transaction 工具。提取参数时务必严谨：判断是 HKD(港币)、CNY(人民币) 还是 USD(美元)。如果用户没有带单位，请根据常识推断（如港股默认 HKD，A股默认 CNY）。记录成功后，请用冷静、理性的语气回复，可以附带一句关于【交易纪律】或【当前仓位】的简短审视，切忌大惊小怪或盲目鼓励。如果用户没有提供具体数量（如只说「清仓了」），请先向用户追问具体数量，不要强行瞎编参数调用。
+
+【回复风格】
+当 update_profile_attribute 调用成功后，你只需要用一句极简确认回复，例如：底层代码已重写：旧目标作废，新的焦点已对齐。
+当 log_portfolio_transaction 调用成功后，你只需要用冷静、克制的语气回复，例如：交易已记录。当前仓位需要你自行审视。
+""".strip()
+
+TELEGRAM_BOT_USER_PROMPT_TEMPLATE = """
+{reply_to_block}{latest_report_block}<user_message>
+{user_text}
+</user_message>
+""".strip()
+
+WORKOUT_PLAN_SYSTEM_PROMPT_TEMPLATE = """
+你是一个顶级的私人教练。用户的名字是 {user_name}。
+你的任务是为用户提供【今日专属训练计划】。
+
+【核心原则】
+1. 动态调整：仔细阅读用户过去 7 天的真实训练记录。即使用户的基准目标是「{routine_desc}」，基准计划是「{routine_pattern}」，你也必须根据他最近的实际情况推断今天最合理的训练部位（推/拉/腿/恢复）。
+2. 证据约束：绝对不要捏造用户没有做过的训练。训练历史缺失时，先给出“保守且通用”的方案（如动态恢复/低容量），并说明理由。
+3. 简洁落地：输出必须清晰可执行，避免套话。
+
+【输出要求（Markdown）】
+- 标题：🏋️ 今日训练计划（含日期）
+- 简要点评（1句话）：评价最近训练执行情况
+- 今日重点（1句话）：明确今天练什么
+- 计划列表：用 Markdown 列表列出动作与组数/次数/强度建议
+- 结束：给出 1 条“最关键的注意点”（只允许 1 条）
+""".strip()
+
+WORKOUT_PLAN_USER_PROMPT_TEMPLATE = """
+当地时间：{current_date}，{current_weekday}
+用户核心目标：{primary_goals}
+
+【过去 7 天实际训练记录】
+{recent_workout_logs}
+
+【过去 3 天量化指标（参考）】
+{metrics_text}
+
+请输出今日训练计划。
+""".strip()
+
 
 SOCRATIC_REVIEW_SYSTEM_PROMPT = """
 # Role (角色定位)
@@ -320,3 +408,127 @@ class PromptManager:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+
+    def get_metrics_extraction_system_prompt(self) -> str:
+        override = os.getenv("METRICS_EXTRACTION_SYSTEM_PROMPT", "").strip()
+        if override:
+            return override
+        return METRICS_EXTRACTION_SYSTEM_PROMPT
+
+    def build_metrics_extraction_prompts(self, *, raw_content: str) -> tuple[str, str]:
+        system_prompt = self.get_metrics_extraction_system_prompt()
+        user_prompt = METRICS_EXTRACTION_USER_PROMPT_TEMPLATE.format(raw_content=(raw_content or "").strip())
+        return system_prompt, user_prompt
+
+    def get_telegram_bot_system_prompt(
+        self,
+        *,
+        user_name: str,
+        primary_goals: str,
+        timezone_str: str,
+        today_str: str,
+        time_str: str,
+        custom_traits: dict | None,
+    ) -> str:
+        override = os.getenv("TELEGRAM_BOT_SYSTEM_PROMPT", "").strip()
+        if override:
+            return override.format(
+                user_name=(user_name or "").strip(),
+                primary_goals=(primary_goals or "").strip(),
+                timezone_str=(timezone_str or "").strip(),
+                today_str=(today_str or "").strip(),
+                time_str=(time_str or "").strip(),
+                custom_traits_yaml=self._format_custom_traits(custom_traits),
+            )
+        return TELEGRAM_BOT_SYSTEM_PROMPT_TEMPLATE.format(
+            user_name=(user_name or "").strip(),
+            primary_goals=(primary_goals or "").strip(),
+            timezone_str=(timezone_str or "").strip(),
+            today_str=(today_str or "").strip(),
+            time_str=(time_str or "").strip(),
+            custom_traits_yaml=self._format_custom_traits(custom_traits),
+        )
+
+    def _format_custom_traits(self, custom_traits: dict | None) -> str:
+        if not custom_traits:
+            return "{}"
+        try:
+            return yaml.safe_dump(custom_traits, allow_unicode=True, sort_keys=False).strip()
+        except Exception:
+            return "{}"
+
+    def build_telegram_bot_user_prompt(
+        self,
+        *,
+        user_text: str,
+        reply_to_text: str | None,
+        latest_report: str | None,
+    ) -> str:
+        reply_to_block = ""
+        if reply_to_text:
+            reply_to_block = f"<reply_to_message>\n{reply_to_text.strip()}\n</reply_to_message>\n\n"
+        latest_report_block = ""
+        if latest_report:
+            latest_report_block = f"<latest_review_report>\n{latest_report.strip()}\n</latest_review_report>\n\n"
+        return TELEGRAM_BOT_USER_PROMPT_TEMPLATE.format(
+            reply_to_block=reply_to_block,
+            latest_report_block=latest_report_block,
+            user_text=(user_text or "").strip(),
+        ).strip()
+
+    def build_telegram_bot_messages(
+        self,
+        *,
+        history: list[dict] | None,
+        user_text: str,
+        reply_to_text: str | None,
+        latest_report: str | None,
+        user_name: str,
+        primary_goals: str,
+        timezone_str: str,
+        today_str: str,
+        time_str: str,
+        custom_traits: dict | None,
+    ) -> list[dict]:
+        system_prompt = self.get_telegram_bot_system_prompt(
+            user_name=user_name,
+            primary_goals=primary_goals,
+            timezone_str=timezone_str,
+            today_str=today_str,
+            time_str=time_str,
+            custom_traits=custom_traits,
+        )
+        user_prompt = self.build_telegram_bot_user_prompt(
+            user_text=user_text, reply_to_text=reply_to_text, latest_report=latest_report
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            *((history or []) if history else []),
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def build_workout_plan_prompts(
+        self,
+        *,
+        user_name: str,
+        routine_desc: str,
+        routine_pattern: str,
+        current_date: str,
+        current_weekday: str,
+        primary_goals: str,
+        recent_workout_logs: str,
+        metrics_text: str,
+    ) -> tuple[str, str]:
+        system_prompt = WORKOUT_PLAN_SYSTEM_PROMPT_TEMPLATE.format(
+            user_name=(user_name or "").strip(),
+            routine_desc=(routine_desc or "").strip(),
+            routine_pattern=(routine_pattern or "").strip(),
+        ).strip()
+        user_prompt = WORKOUT_PLAN_USER_PROMPT_TEMPLATE.format(
+            current_date=(current_date or "").strip(),
+            current_weekday=(current_weekday or "").strip(),
+            primary_goals=(primary_goals or "").strip(),
+            recent_workout_logs=(recent_workout_logs or "").strip(),
+            metrics_text=(metrics_text or "").strip(),
+        ).strip()
+        return system_prompt, user_prompt
