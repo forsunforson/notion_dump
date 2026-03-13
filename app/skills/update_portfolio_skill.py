@@ -263,6 +263,7 @@ def log_portfolio_transaction(
 
     yaml_update_note = ""
     notion_result = None
+    notion = None
 
     try:
         from app.services.notion_service import NotionService
@@ -340,12 +341,33 @@ def log_portfolio_transaction(
     except Exception as e:
         yaml_update_note = f"(注：本地 Profile 更新失败，请检查 YAML 格式: {str(e)})"
 
+    trade_snapshot_note = ""
+    try:
+        if notion and page_id:
+            notion.append_trade_snapshot_log_to_page(
+                page_id=page_id,
+                ticker=ticker,
+                action=action,
+                price=price,
+                quantity=quantity,
+                cash_impact=cash_impact,
+                currency=currency,
+                total_amount=total_amount,
+                notes=notes_str,
+                changes=changes,
+                captured_at=captured_at,
+            )
+    except Exception as e:
+        trade_snapshot_note = f"(注：交易快照模板写入失败: {str(e)})"
+
     suffix = url or page_id
     base_msg = f"交易已记录：[{action}] {ticker} {int(quantity)}股 @ {price} {currency} (总额: {total_amount} {currency})，时间：{captured_at[:10]}"
     if suffix:
         base_msg += f"，Notion：{suffix}"
     if yaml_update_note:
         base_msg += f" {yaml_update_note}"
+    if trade_snapshot_note:
+        base_msg += f" {trade_snapshot_note}"
 
     return base_msg
 

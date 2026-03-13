@@ -33,6 +33,7 @@ class NotionService:
             max_workers=int((os.getenv("NOTION_ASYNC_MAX_WORKERS") or "2").strip() or 2),
             thread_name_prefix="notion-chatlog",
         )
+        self._trade_beta_cache: dict[str, str] = {}
     
     def _paginate(self, method, **kwargs) -> List[Dict[str, Any]]:
         """
@@ -290,6 +291,210 @@ class NotionService:
         return blocks
 
     @classmethod
+    def _content_to_heading_blocks(cls, content: str, level: int) -> list[dict]:
+        if level not in (1, 2, 3):
+            level = 2
+        block_type = f"heading_{level}"
+        blocks: list[dict] = []
+        for chunk in cls._split_text_for_notion(content):
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": block_type,
+                    block_type: {"rich_text": cls._build_rich_text(chunk)},
+                }
+            )
+        return blocks
+
+    @classmethod
+    def _content_to_to_do_blocks(cls, content: str, checked: bool) -> list[dict]:
+        blocks: list[dict] = []
+        for chunk in cls._split_text_for_notion(content):
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "to_do",
+                    "to_do": {"rich_text": cls._build_rich_text(chunk), "checked": checked},
+                }
+            )
+        return blocks
+
+    @classmethod
+    def _simple_markdown_to_blocks(cls, md: str) -> list[dict]:
+        blocks: list[dict] = []
+        for raw_line in (md or "").splitlines():
+            line = raw_line.rstrip("\n").rstrip("\r").rstrip()
+            if not line.strip():
+                continue
+            s = line.lstrip()
+            if s.startswith("### "):
+                blocks.extend(cls._content_to_heading_blocks(s[4:].strip(), 3))
+                continue
+            if s.startswith("## "):
+                blocks.extend(cls._content_to_heading_blocks(s[3:].strip(), 2))
+                continue
+            if s.startswith("# "):
+                blocks.extend(cls._content_to_heading_blocks(s[2:].strip(), 1))
+                continue
+            checked = None
+            todo_text = None
+            if s.startswith("- [ ] "):
+                checked = False
+                todo_text = s[6:].strip()
+            elif s.startswith("- [x] ") or s.startswith("- [X] "):
+                checked = True
+                todo_text = s[6:].strip()
+            elif s.startswith("[ ] "):
+                checked = False
+                todo_text = s[4:].strip()
+            elif s.startswith("[x] ") or s.startswith("[X] "):
+                checked = True
+                todo_text = s[4:].strip()
+            if checked is not None:
+                blocks.extend(cls._content_to_to_do_blocks(todo_text or "", checked))
+                continue
+            blocks.extend(cls._content_to_paragraph_blocks(line))
+        return blocks
+
+    def _load_local_template(self, template_name: str) -> str | None:
+        name = (template_name or "").strip()
+        if not name:
+            return None
+        if not name.endswith(".md"):
+            name += ".md"
+        p = config_dir() / "templates" / name
+        if not p.exists() or not p.is_file():
+            return None
+        return p.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _map_portfolio_action_cn(action: str) -> str:
+        a = (action or "").strip().upper()
+        if a == "BUY":
+            return "买入建仓"
+        if a == "SELL":
+            return "阶梯减仓"
+        if a == "DIVIDEND":
+            return "分红入账"
+        return action or ""
+
+    @classmethod
+    def _render_trade_snapshot_template(
+        cls,
+        template_text: str,
+        *,
+        ticker: str,
+        action: str,
+        price: float,
+        currency: str,
+        notes: str = "",
+        old_stock: float | None = None,
+        new_stock: float | None = None,
+        market_beta_line: str | None = None,
+    ) -> str:
+        action_cn = cls._map_portfolio_action_cn(action)
+        ticker_str = str(ticker or "").strip()
+        currency_str = str(currency or "").strip().upper()
+        notes_str = str(notes or "").strip()
+        try:
+            price_str = f"{float(price):.2f} {currency_str}".strip()
+        except Exception:
+            price_str = str(price)
+
+        def _fmt_qty(v: float | None) -> str | None:
+            if v is None:
+                return None
+            try:
+                fv = float(v)
+                if fv.is_integer():
+                    return str(int(fv))
+                return str(fv)
+            except Exception:
+                return str(v)
+
+        old_stock_str = _fmt_qty(old_stock)
+        new_stock_str = _fmt_qty(new_stock)
+
+        out_lines: list[str] = []
+        for raw_line in (template_text or "").splitlines():
+            key = raw_line.strip()
+            if key.startswith("交易标的：") and ticker_str:
+                out_lines.append(f"交易标的： {ticker_str}")
+                continue
+            if key.startswith("执行动作：") and action_cn:
+                out_lines.append(f"执行动作： {action_cn}")
+                continue
+            if key.startswith("成交均价：") and price_str:
+                out_lines.append(f"成交均价： {price_str}")
+                continue
+            if key.startswith("仓位变动：") and old_stock_str is not None and new_stock_str is not None:
+                out_lines.append(f"仓位变动： [从 {old_stock_str} 股 变动至 {new_stock_str} 股]")
+                continue
+            if key.startswith("大盘水位 (Beta)：") and market_beta_line:
+                out_lines.append(market_beta_line)
+                continue
+            if key.startswith("核心信息源：") and notes_str:
+                out_lines.append(f"核心信息源： {notes_str}")
+                continue
+            out_lines.append(raw_line)
+        return "\n".join(out_lines).strip() + "\n"
+
+    def append_trade_snapshot_log_to_page(
+        self,
+        *,
+        page_id: str,
+        ticker: str,
+        action: str,
+        price: float,
+        quantity: float,
+        cash_impact: float | None = None,
+        currency: str,
+        total_amount: float | None = None,
+        notes: str = "",
+        changes: dict | None = None,
+        captured_at: str | None = None,
+    ) -> None:
+        pid = (page_id or "").strip()
+        if not pid:
+            return
+        template_text = self._load_local_template("trade_snapshot_log.md")
+        if not template_text:
+            return
+        old_stock = None
+        new_stock = None
+        if isinstance(changes, dict):
+            old_stock = changes.get("old_stock")
+            new_stock = changes.get("new_stock")
+        tz = self._load_profile_timezone()
+        now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(tz)
+        if captured_at:
+            try:
+                dt = datetime.datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ")
+                now_local = dt.replace(tzinfo=datetime.timezone.utc).astimezone(tz)
+            except Exception:
+                pass
+        market_beta_line = self._get_hstech_beta_line(now_local.date())
+        md = self._render_trade_snapshot_template(
+            template_text,
+            ticker=ticker,
+            action=action,
+            price=price,
+            currency=currency,
+            notes=notes,
+            old_stock=old_stock,
+            new_stock=new_stock,
+            market_beta_line=market_beta_line,
+        )
+        blocks = self._simple_markdown_to_blocks(md)
+        if not blocks:
+            return
+        i = 0
+        while i < len(blocks):
+            chunk = blocks[i : i + 100]
+            self.client.blocks.children.append(block_id=pid, children=chunk)
+            i += 100
+
+    @classmethod
     def _content_to_paragraph_blocks(cls, content: str) -> list[dict]:
         return cls._content_to_blocks(content, "paragraph")
 
@@ -299,6 +504,64 @@ class NotionService:
 
     def _load_profile_timezone(self) -> ZoneInfo:
         return load_profile_timezone()
+
+    def _get_hstech_beta_line(self, date_local: datetime.date) -> str | None:
+        if (os.getenv("CHRONOFOLD_DISABLE_YFINANCE") or "").strip() == "1":
+            return None
+        key = date_local.strftime("%Y-%m-%d")
+        cached = self._trade_beta_cache.get(key)
+        if cached:
+            return cached
+        try:
+            import yfinance as yf
+        except Exception:
+            return None
+        try:
+            df = yf.download(
+                "^HSTECH",
+                period="10d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=False,
+                threads=True,
+                progress=False,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to fetch ^HSTECH via yfinance: {e}")
+            return None
+        try:
+            close = None
+            if hasattr(df, "empty") and df.empty:
+                return None
+            cols = getattr(df, "columns", None)
+            if cols is not None and hasattr(cols, "names") and cols.names and len(cols.names) > 1:
+                if "^HSTECH" in getattr(cols, "get_level_values")(0):
+                    close = df["^HSTECH"]["Close"]
+            if close is None and "Close" in df:
+                close = df["Close"]
+            if close is None:
+                return None
+
+            close = close.dropna()
+            if len(close) < 2:
+                return None
+            last = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            if prev <= 0:
+                return None
+            pct = (last / prev) - 1.0
+            if pct >= 0.02:
+                tag = "大涨"
+            elif pct <= -0.02:
+                tag = "大跌"
+            else:
+                tag = "平盘"
+            line = f"大盘水位 (Beta)： 恒生科技指数当日表现 {tag} ({pct:+.2%})"
+            self._trade_beta_cache[key] = line
+            return line
+        except Exception as e:
+            logger.warning(f"Failed to parse ^HSTECH history: {e}")
+            return None
 
     @staticmethod
     def _build_chatlog_rich_text(role: str, time_str: str, content: str) -> list[dict]:
