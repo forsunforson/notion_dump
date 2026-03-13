@@ -155,13 +155,13 @@ def _parse_yyyy_mm_dd(date_str: str) -> datetime.date:
 
 
 def run_portfolio_job() -> None:
-    from app.jobs.portfolio_sync_job import PortfolioSyncJob
+    from app.jobs.net_worth_sync_job import NetWorthSyncJob
 
-    logger.info("Starting portfolio sync job...")
-    rc = PortfolioSyncJob().run()
+    logger.info("Starting net worth sync job...")
+    rc = NetWorthSyncJob().run()
     if rc != 0:
         sys.exit(rc)
-    logger.info("Portfolio sync job completed.")
+    logger.info("Net worth sync job completed.")
 
 
 def main():
@@ -174,7 +174,7 @@ Examples:
   python main.py --job sync --force            # Force full sync
   python main.py --job morning                 # Run morning routine
   python main.py --job weekly                  # Run weekly review
-  python main.py --job portfolio               # Sync portfolio prices and write metric
+  python main.py --job portfolio               # Sync net worth and write metric
   python main.py --job analyze                 # Analyze all files in notion_output/
   python main.py --job analyze file1.md file2.md  # Analyze specific files
   python main.py --job review --type daily     # Generate yesterday review and save
