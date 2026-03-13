@@ -87,11 +87,13 @@ balance_sheet_structure:
             - name: "stock"
               detail:
                 - name: "[公司名]"
+                  ticker: "[股票代码]"
                   stock_count: "[持股数]"
             - name: "option"
               value: "[期权估值]"
               detail:
                 - name: "[期权名]"
+                  value: "[估值]"
                   option_count: "[期权数]"
         - name: "house fund"     # 公积金等
           value: "[余额]"
