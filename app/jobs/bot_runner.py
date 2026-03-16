@@ -10,6 +10,7 @@ from app.services.prompt_manager import PromptManager
 from app.utils.context_fetcher import ContextFetcher
 from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_profile_attribute
+from app.skills.update_manual_asset_skill import UPDATE_MANUAL_ASSET_SCHEMA, update_manual_asset_value
 from app.skills.update_portfolio_skill import LOG_PORTFOLIO_TRANSACTION_SCHEMA, log_portfolio_transaction
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,12 @@ class TelegramBotRunner:
 
             latest_report = self.fetcher.get_latest_report()
 
-            executed = {"upsert_daily_metric": 0, "update_profile_attribute": 0, "log_portfolio_transaction": 0}
+            executed = {
+                "upsert_daily_metric": 0,
+                "update_profile_attribute": 0,
+                "update_manual_asset_value": 0,
+                "log_portfolio_transaction": 0,
+            }
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
                 executed["upsert_daily_metric"] += 1
@@ -90,14 +96,24 @@ class TelegramBotRunner:
                 executed["update_profile_attribute"] += 1
                 return update_profile_attribute(**kwargs)
 
+            def wrapped_update_manual_asset_value(**kwargs) -> str:
+                executed["update_manual_asset_value"] += 1
+                return update_manual_asset_value(**kwargs)
+
             def wrapped_log_portfolio_transaction(**kwargs) -> str:
                 executed["log_portfolio_transaction"] += 1
                 return log_portfolio_transaction(**kwargs)
 
-            tools = [METRICS_SKILL_SCHEMA, UPDATE_PROFILE_SKILL_SCHEMA, LOG_PORTFOLIO_TRANSACTION_SCHEMA]
+            tools = [
+                METRICS_SKILL_SCHEMA,
+                UPDATE_PROFILE_SKILL_SCHEMA,
+                UPDATE_MANUAL_ASSET_SCHEMA,
+                LOG_PORTFOLIO_TRANSACTION_SCHEMA,
+            ]
             tool_map = {
                 "upsert_daily_metric": wrapped_upsert_daily_metric,
                 "update_profile_attribute": wrapped_update_profile_attribute,
+                "update_manual_asset_value": wrapped_update_manual_asset_value,
                 "log_portfolio_transaction": wrapped_log_portfolio_transaction,
             }
 

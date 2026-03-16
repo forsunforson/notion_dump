@@ -37,6 +37,7 @@
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
 -   **`update_profile_skill.py`**: Profile 动态更新技能。提供 `update_profile_attribute(yaml_path, new_value, reason, category)`：使用点语法定位并更新画像字段；对静态锁定字段强制拒绝；写回后追加审计日志到 `profile_changelog.jsonl`。
+-   **`update_manual_asset_skill.py`**: 手动资产更新技能。提供 `update_manual_asset_value(asset_name, target_key, new_value, reason)`：在 `balance_sheet_structure` 中递归按 `name` 定位目标资产，更新 `value/price` 等手动维护字段；使用 ruamel.yaml 保留原始 YAML 格式；成功后追加审计日志到 `profile_changelog.jsonl`。
 -   **`update_portfolio_skill.py`**: 投资交易记录与资产负债表更新技能。提供 `log_portfolio_transaction(ticker, action, price, quantity, cash_impact, currency, notes)`：先写入 Notion Portfolio Ledger，再以**双分录**方式原子更新 `config/profile.yaml` 中的 `stock_count` 与 `checking account` 余额（BUY 扣现金加股票；SELL 加现金减股票；DIVIDEND 只加现金）；随后为该交易 Page 追加一段“交易快照”正文（来自 `config/templates/trade_snapshot_log.md`，并自动填充部分字段，如成交均价、仓位变动股数、恒生科技指数当日表现等）。成功后向 `profile_changelog.jsonl` 追加审计事件（股票与现金可能各一条）。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
