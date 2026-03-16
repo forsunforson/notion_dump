@@ -229,11 +229,12 @@ show_run_menu() {
     echo "1. 🔄 Sync (Data sync and backup)"
     echo "2. 🌅 Morning Routine (Morning greeting)"
     echo "3. 📊 Weekly Review (Weekly summary)"
-    echo "4. 🤖 Telegram Bot (Run in foreground)"
-    echo "5. 💹 Portfolio Sync (Sync prices)"
-    echo "6. ◀️  Back to Main Menu"
+    echo "4. 🗓️ Monthly Review (Monthly review report)"
+    echo "5. 🤖 Telegram Bot (Run in foreground)"
+    echo "6. 💹 Portfolio Sync (Sync prices)"
+    echo "7. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select a task to run [1-6]: "
+    echo -n "Select a task to run [1-7]: "
 }
 
 show_schedule_menu() {
@@ -244,20 +245,22 @@ show_schedule_menu() {
     echo "1. 🔄 Setup Sync Task (Data sync)"
     echo "2. 🌅 Setup Morning Routine"
     echo "3. 📊 Setup Weekly Review"
-    echo "4. 💹 Setup Portfolio Sync"
-    echo "5. ✨ Quick Setup (Recommended)"
-    echo "6. ◀️  Back to Main Menu"
+    echo "4. 🗓️ Setup Monthly Review"
+    echo "5. 💹 Setup Portfolio Sync"
+    echo "6. ✨ Quick Setup (Recommended)"
+    echo "7. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select an option [1-6]: "
+    echo -n "Select an option [1-7]: "
 }
 
 run_task_now() {
     local job_type="$1"
     local job_name="$2"
+    shift 2
     echo ""
     echo "🚀 Starting $job_name..."
     echo "------------------------------------------"
-    "$RUN_TASK_SCRIPT" --job "$job_type" --log-level DEBUG
+    "$RUN_TASK_SCRIPT" --job "$job_type" "$@" --log-level DEBUG
     echo "------------------------------------------"
     echo "✅ $job_name completed. Check output above or logs."
 }
@@ -270,9 +273,10 @@ run_now_submenu() {
             1) run_task_now "sync" "Sync Task" ;;
             2) run_task_now "morning" "Morning Routine" ;;
             3) run_task_now "weekly" "Weekly Review" ;;
-            4) run_task_now "bot" "Telegram Bot" ;;
-            5) run_task_now "portfolio" "Portfolio Sync" ;;
-            6) return ;;
+            4) run_task_now "review" "Monthly Review" --type monthly ;;
+            5) run_task_now "bot" "Telegram Bot" ;;
+            6) run_task_now "portfolio" "Portfolio Sync" ;;
+            7) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
@@ -361,6 +365,45 @@ schedule_weekly_task() {
     echo "   Command: $cron_job"
 }
 
+schedule_monthly_task() {
+    echo ""
+    echo "📅 Setting up Monthly Review..."
+    echo "⚠️  Current system time: $(date)"
+    echo ""
+    echo "This task will generate last-month review and save it into _reports/."
+    echo ""
+    read -p "Enter day of month to run (1-31): " day
+    read -p "Enter hour to run (0-23): " hour
+    read -p "Enter minute to run (0-59): " minute
+
+    if ! [[ "$day" =~ ^[0-9]+$ ]] || [ "$day" -lt 1 ] || [ "$day" -gt 31 ]; then
+        echo "❌ Invalid day. Please enter a number between 1 and 31."
+        return
+    fi
+    if ! [[ "$hour" =~ ^[0-9]+$ ]] || [ "$hour" -lt 0 ] || [ "$hour" -gt 23 ]; then
+        echo "❌ Invalid hour. Please enter a number between 0 and 23."
+        return
+    fi
+    if ! [[ "$minute" =~ ^[0-9]+$ ]] || [ "$minute" -lt 0 ] || [ "$minute" -gt 59 ]; then
+        echo "❌ Invalid minute. Please enter a number between 0 and 59."
+        return
+    fi
+
+    cron_job="$minute $hour $day * * $RUN_TASK_SCRIPT --job review --type monthly >> $LOGS_DIR/cron_monthly.log 2>&1"
+
+    (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job review --type monthly"; echo "$cron_job") | crontab -
+
+    echo ""
+    echo "✅ Monthly review scheduled successfully!"
+    echo "   Schedule: Monthly on day $day at $(printf '%02d:%02d' "$hour" "$minute")"
+    echo "   Command: $cron_job"
+    if [ "$day" -gt 28 ]; then
+        echo ""
+        echo "ℹ️  Note: Some months don't have day $day, cron will skip those months."
+        echo "   If you want it to run every month, consider using day 28."
+    fi
+}
+
 schedule_portfolio_task() {
     echo ""
     echo "📅 Setting up Portfolio Sync..."
@@ -435,9 +478,10 @@ schedule_submenu() {
             1) schedule_sync_task ;;
             2) schedule_morning_task ;;
             3) schedule_weekly_task ;;
-            4) schedule_portfolio_task ;;
-            5) quick_setup ;;
-            6) return ;;
+            4) schedule_monthly_task ;;
+            5) schedule_portfolio_task ;;
+            6) quick_setup ;;
+            7) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
@@ -461,6 +505,8 @@ view_schedule() {
                 echo "  🌅 Morning: $line"
             elif echo "$line" | grep -q "job weekly"; then
                 echo "  📊 Weekly: $line"
+            elif echo "$line" | grep -q "job review" && echo "$line" | grep -q "type monthly"; then
+                echo "  🗓️ Monthly: $line"
             elif echo "$line" | grep -q "job portfolio"; then
                 echo "  💹 Portfolio: $line"
             else
@@ -485,11 +531,12 @@ unschedule_task() {
     echo "1. Remove Sync Task"
     echo "2. Remove Morning Routine"
     echo "3. Remove Weekly Review"
-    echo "4. Remove Portfolio Sync"
-    echo "5. Remove All Tasks"
-    echo "6. ◀️  Back to Main Menu"
+    echo "4. Remove Monthly Review"
+    echo "5. Remove Portfolio Sync"
+    echo "6. Remove All Tasks"
+    echo "7. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select an option [1-6]: "
+    echo -n "Select an option [1-7]: "
     read choice
     
     case $choice in
@@ -518,6 +565,14 @@ unschedule_task() {
             fi
             ;;
         4)
+            if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT --job review --type monthly"; then
+                (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job review --type monthly") | crontab -
+                echo "✅ Monthly review removed from schedule."
+            else
+                echo "ℹ️  No monthly review found."
+            fi
+            ;;
+        5)
             if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT --job portfolio"; then
                 (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job portfolio") | crontab -
                 echo "✅ Portfolio sync removed from schedule."
@@ -525,7 +580,7 @@ unschedule_task() {
                 echo "ℹ️  No portfolio sync found."
             fi
             ;;
-        5)
+        6)
             if crontab -l 2>/dev/null | grep -q "$RUN_TASK_SCRIPT"; then
                 (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT") | crontab -
                 echo "✅ All tasks removed from schedule."
@@ -533,7 +588,7 @@ unschedule_task() {
                 echo "ℹ️  No scheduled tasks found."
             fi
             ;;
-        6)
+        7)
             return
             ;;
         *)

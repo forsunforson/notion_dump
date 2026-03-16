@@ -21,7 +21,7 @@
 ### 入口与调度 (Entry & Orchestration)
 -   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+可选指标抽取), `analyze` (仅指标抽取), `review` (生成回顾报告并存盘，支持 daily/weekly/monthly/custom), `portfolio` (同步资产负债表并写入净资产指标), `bot` (启动对话服务), `morning/weekly` (生成对应回顾并推送 Telegram) 等指令。
 -   **`deploy/run_task.sh`**: 生产环境执行包装器。负责：1. `git pull` 自动更新代码；2. 激活 venv；3. 执行 `main.py`；4. 执行 Rclone 备份；5. 进程锁管理。
--   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务；并提供资产负债表/持仓估值查看，以及 Portfolio Sync 的定时任务管理入口。
+-   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度和 Systemd 服务；并提供资产负债表/持仓估值查看，以及 Portfolio Sync / Monthly Review 的定时任务管理入口。
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
