@@ -128,15 +128,13 @@ show_main_menu() {
     echo "=========================================="
     echo "1. 🚀 Run Task Now"
     echo "2. 🤖 Manage Bot Service"
-    echo "3. 📅 Schedule Tasks (Crontab)"
-    echo "4. 📋 View Current Schedule"
-    echo "5. 🗑️  Remove Schedule"
-    echo "6. 👀 View Logs (tail -f)"
-    echo "7. 🌍 Settings (Timezone: $USER_TZ)"
-    echo "8. 💼 View Balance Sheet"
-    echo "9. ❌ Exit"
+    echo "3. ⏰ Manage Cronjobs"
+    echo "4. 👀 View Logs (tail -f)"
+    echo "5. 🌍 Settings (Timezone: $USER_TZ)"
+    echo "6. 💼 View Balance Sheet"
+    echo "7. ❌ Exit"
     echo "=========================================="
-    echo -n "Select an option [1-9]: "
+    echo -n "Select an option [1-7]: "
 }
 
 show_bot_menu() {
@@ -151,6 +149,19 @@ show_bot_menu() {
     echo "5. ◀️  Back to Main Menu"
     echo "=========================================="
     echo -n "Select an option [1-5]: "
+}
+
+show_cron_menu() {
+    echo ""
+    echo "=========================================="
+    echo "   ⏰ Manage Cronjobs"
+    echo "=========================================="
+    echo "1. 📅 Schedule Tasks (Crontab)"
+    echo "2. 📋 View Current Schedule"
+    echo "3. 🗑️  Remove Schedule"
+    echo "4. ◀️  Back to Main Menu"
+    echo "=========================================="
+    echo -n "Select an option [1-4]: "
 }
 
 manage_bot_service() {
@@ -217,6 +228,21 @@ EOF
                 ;;
             5) return ;;
             *) echo "❌ Invalid option." ;;
+        esac
+    done
+}
+
+manage_cronjobs() {
+    while true; do
+        show_cron_menu
+        read choice
+
+        case $choice in
+            1) schedule_submenu ;;
+            2) view_schedule ;;
+            3) unschedule_task ;;
+            4) return ;;
+            *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
 }
@@ -648,13 +674,11 @@ while true; do
     case $choice in
         1) run_now_submenu ;;
         2) manage_bot_service ;;
-        3) schedule_submenu ;;
-        4) view_schedule ;;
-        5) unschedule_task ;;
-        6) view_logs ;;
-        7) select_timezone ;;
-        8) view_balance_sheet ;;
-        9) echo "Bye! 👋"; exit 0 ;;
+        3) manage_cronjobs ;;
+        4) view_logs ;;
+        5) select_timezone ;;
+        6) view_balance_sheet ;;
+        7) echo "Bye! 👋"; exit 0 ;;
         *) echo "❌ Invalid option. Please try again." ;;
     esac
 done
