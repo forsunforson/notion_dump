@@ -11,6 +11,7 @@ from notion_client import Client
 import yaml
 
 from app.core.paths import config_dir
+from app.services.finance_service import FinanceService
 from app.utils.notion_meta import extract_title, get_page_meta
 from app.utils.text_chunking import split_text_by_length
 from app.utils.timezone_utils import load_profile_timezone
@@ -24,6 +25,7 @@ class NotionService:
         if not self.token:
             raise ValueError("Notion token is required. Set NOTION_TOKEN environment variable or pass token parameter.")
         self.client = Client(auth=self.token)
+        self.finance_service = FinanceService()
         self._db_title_prop_name_cache: dict[str, str] = {}
         self._db_query_target_cache: dict[str, tuple[str, str]] = {}
         self._db_parent_database_id_cache: dict[str, str] = {}
@@ -513,61 +515,19 @@ class NotionService:
         cached = self._trade_beta_cache.get(key)
         if cached:
             return cached
-        try:
-            import yfinance as yf
-        except Exception:
+        pct = self.finance_service.daily_pct_change(symbol, period="10d", interval="1d")
+        if pct is None:
             return None
-        try:
-            df = yf.download(
-                symbol,
-                period="10d",
-                interval="1d",
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
-                progress=False,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to fetch {symbol} via yfinance: {e}")
-            return None
-        try:
-            close = None
-            if hasattr(df, "empty") and df.empty:
-                return None
-            cols = getattr(df, "columns", None)
-            if cols is not None and hasattr(cols, "names") and cols.names and len(cols.names) > 1:
-                try:
-                    if symbol in getattr(cols, "get_level_values")(0):
-                        close = df[symbol]["Close"]
-                    if close is None and symbol in getattr(cols, "get_level_values")(-1):
-                        close = df[("Close", symbol)]
-                except Exception:
-                    close = None
-            if close is None and "Close" in df:
-                close = df["Close"]
-            if close is None:
-                return None
 
-            close = close.dropna()
-            if len(close) < 2:
-                return None
-            last = float(close.iloc[-1])
-            prev = float(close.iloc[-2])
-            if prev <= 0:
-                return None
-            pct = (last / prev) - 1.0
-            if pct >= 0.02:
-                tag = "大涨"
-            elif pct <= -0.02:
-                tag = "大跌"
-            else:
-                tag = "平盘"
-            line = f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
-            self._trade_beta_cache[key] = line
-            return line
-        except Exception as e:
-            logger.warning(f"Failed to parse {symbol} history: {e}")
-            return None
+        if pct >= 0.02:
+            tag = "大涨"
+        elif pct <= -0.02:
+            tag = "大跌"
+        else:
+            tag = "平盘"
+        line = f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
+        self._trade_beta_cache[key] = line
+        return line
 
     @staticmethod
     def _build_chatlog_rich_text(role: str, time_str: str, content: str) -> list[dict]:

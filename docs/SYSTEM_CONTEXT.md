@@ -7,7 +7,7 @@
 ### 核心数据流 (Core Data Flow)
 1.  **Ingest (摄取)**: `SyncNotionJob` 定时从 Notion API 拉取变更页面（Incremental Sync），通过 `NotionToMarkdown` 转换为带有 YAML Frontmatter 的标准 Markdown 文件，存储于 `notion_output/`。
 2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并 Upsert 写入 `notion_output/metrics.jsonl`。该阶段不生成主观总结/简报。
-3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `yfinance` 拉取价格与汇率，计算当日权益总市值（CNY），并 Upsert 写入 `notion_output/metrics.jsonl`，为“投资偏离警告”提供硬数据底座。
+3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `FinanceService` 拉取价格与汇率（默认数据源为 `yfinance`），计算当日权益总市值（CNY），并 Upsert 写入 `notion_output/metrics.jsonl`，为“投资偏离警告”提供硬数据底座。
 4.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
 5.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
 6.  **Interact (交互)**:
@@ -32,7 +32,7 @@
 -   **`routines.py`**: 轻量分发层。执行 `morning/weekly` 时调用统一回顾引擎生成 Markdown，并通过 `TelegramService` 推送消息。
 
 ### 维护工具 (Ops CLI - `app/cli/`)
--   **`balance_sheet.py`**: 运维查看工具。读取 `config/profile.yaml` 输出资产负债表结构；可选拉取 `yfinance` 实时价格与 `XXCNY=X` 汇率，计算并展示持仓的实时 CNY 估值。
+-   **`balance_sheet.py`**: 运维查看工具。读取 `config/profile.yaml` 输出资产负债表结构；可选通过 `FinanceService` 拉取实时价格与 `XXCNY=X` 汇率，计算并展示持仓的实时 CNY 估值。
 
 ### 技能与工具库 (Skills & Tools - `app/skills/`)
 -   **`metrics_skill.py`**: 量化指标管理技能。提供 `upsert_daily_metric` 函数，支持通过自然语言对话记录体重、精力值、睡眠等数据，自动更新 `metrics.jsonl`。
@@ -42,6 +42,7 @@
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
+-   **`finance_service.py`**: 行情数据网关。封装行情/汇率数据读取接口，默认使用 `yfinance`，对上层逻辑屏蔽具体数据源实现。
 -   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送 (Send Message)，并调用 `ChatLogService` 记录 Bot 发送的消息。

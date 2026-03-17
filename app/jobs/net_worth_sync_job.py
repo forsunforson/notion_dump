@@ -7,14 +7,9 @@ from typing import Any
 import yaml
  
 from app.core.paths import config_dir, output_dir
+from app.services.finance_service import FinanceService
 from app.utils.jsonl_kv_store import upsert_jsonl
 from app.utils.timezone_utils import load_profile_timezone
- 
-try:
-    import yfinance as yf
-except ImportError:
-    yf = None
- 
  
 logger = logging.getLogger(__name__)
  
@@ -184,8 +179,9 @@ class NetWorthSyncJob:
         self.tz = load_profile_timezone(self.profile_path)
  
     def run(self) -> int:
-        if yf is None:
-            logger.error("yfinance is not installed; cannot run net_worth_sync_job")
+        finance = FinanceService()
+        if not finance.is_available():
+            logger.error("finance_service unavailable; cannot run net_worth_sync_job")
             return 2
  
         local_date = datetime.datetime.now(self.tz).date().isoformat()
@@ -211,7 +207,7 @@ class NetWorthSyncJob:
         currencies = {c for c in (currencies_a | currencies_l) if _needs_fx(c)}
         fx_tickers = sorted({_fx_ticker(c) for c in currencies})
  
-        prices = self._fetch_last_close_prices(tickers + fx_tickers) if (tickers or fx_tickers) else {}
+        prices = finance.last_close_prices(tickers + fx_tickers) if (tickers or fx_tickers) else {}
  
         live_prices: dict[str, Decimal] = {}
         for t in tickers:
@@ -274,58 +270,6 @@ class NetWorthSyncJob:
         if not isinstance(data, dict):
             raise ValueError("profile.yaml must be a mapping")
         return data
- 
-    def _fetch_last_close_prices(self, tickers: list[str]) -> dict[str, Decimal]:
-        if not tickers:
-            return {}
- 
-        try:
-            df = yf.download(
-                tickers=tickers,
-                period="10d",
-                interval="1d",
-                group_by="ticker",
-                auto_adjust=False,
-                threads=True,
-                progress=False,
-            )
-        except Exception:
-            logger.exception("yfinance download failed for tickers=%s", tickers)
-            return {}
- 
-        if df is None or getattr(df, "empty", True):
-            logger.warning("yfinance returned empty data for tickers=%s", tickers)
-            return {}
- 
-        prices: dict[str, Decimal] = {}
-        nlevels = getattr(getattr(df, "columns", None), "nlevels", 1)
- 
-        def _last_close_one(d) -> Decimal | None:
-            try:
-                close = d["Close"]
-                close = close.dropna()
-                if getattr(close, "empty", True):
-                    return None
-                return _to_decimal(close.iloc[-1])
-            except Exception:
-                return None
- 
-        if len(tickers) == 1 and nlevels == 1:
-            p = _last_close_one(df)
-            if p is not None:
-                prices[tickers[0]] = p
-            return prices
- 
-        for t in tickers:
-            try:
-                sub = df[t]
-            except Exception:
-                continue
-            p = _last_close_one(sub)
-            if p is not None:
-                prices[t] = p
- 
-        return prices
  
     def _metrics_key(self, item: dict) -> str | None:
         source = item.get("source")

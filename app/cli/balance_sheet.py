@@ -10,12 +10,7 @@ from typing import Any
 import yaml
 
 from app.core.paths import config_dir
-
-try:
-    import yfinance as yf
-except ImportError:
-    yf = None
-
+from app.services.finance_service import FinanceService
 
 @dataclass(frozen=True)
 class StockPosition:
@@ -118,44 +113,8 @@ def _fx_ticker(currency: str) -> str:
     return f"{c}CNY=X"
 
 
-def _last_price_via_yf(ticker: str) -> Decimal | None:
-    if yf is None:
-        return None
-    try:
-        t = yf.Ticker(ticker)
-        fi = getattr(t, "fast_info", None)
-        if fi:
-            p = fi.get("last_price")
-            if p is None:
-                p = fi.get("regular_market_price")
-            if p is None:
-                p = fi.get("previous_close")
-            d = _to_decimal(p)
-            if d is not None:
-                return d
-
-        h = t.history(period="1d", interval="1m")
-        if h is not None and not getattr(h, "empty", True):
-            s = h.get("Close")
-            if s is not None:
-                s = s.dropna()
-                if not getattr(s, "empty", True):
-                    d = _to_decimal(s.iloc[-1])
-                    if d is not None:
-                        return d
-
-        h = t.history(period="10d", interval="1d")
-        if h is not None and not getattr(h, "empty", True):
-            s = h.get("Close")
-            if s is not None:
-                s = s.dropna()
-                if not getattr(s, "empty", True):
-                    d = _to_decimal(s.iloc[-1])
-                    if d is not None:
-                        return d
-    except Exception:
-        return None
-    return None
+def _last_price(finance: FinanceService, ticker: str) -> Decimal | None:
+    return finance.last_price(ticker)
 
 
 def _print_balance_sheet(balance_sheet_structure: dict[str, Any]) -> None:
@@ -225,14 +184,15 @@ def _print_portfolio_realtime(balance_sheet_structure: dict[str, Any]) -> int:
             print("skipped: no stock positions found in profile.yaml")
         return 0
 
-    if yf is None:
-        print("yfinance not installed in current python environment")
+    finance = FinanceService()
+    if not finance.is_available():
+        print("finance_service unavailable in current python environment")
         return 2
 
     fx_needed = sorted({_fx_ticker(p.currency) for p in positions if _needs_fx(p.currency)})
     fx_rates: dict[str, Decimal] = {}
     for fx in fx_needed:
-        r = _last_price_via_yf(fx)
+        r = _last_price(finance, fx)
         if r is not None:
             fx_rates[fx] = r
 
@@ -240,7 +200,7 @@ def _print_portfolio_realtime(balance_sheet_structure: dict[str, Any]) -> int:
     total_cny = Decimal("0")
 
     for p in positions:
-        price = _last_price_via_yf(p.ticker)
+        price = _last_price(finance, p.ticker)
         if price is None:
             rows.append(
                 {
@@ -362,4 +322,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

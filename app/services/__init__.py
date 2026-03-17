@@ -18,6 +18,11 @@ try:
 except Exception:
     NotionService = None
 
+try:
+    from .finance_service import FinanceService
+except Exception:
+    FinanceService = None
+
 __all__ = []
 if LLMService is not None:
     __all__.append("LLMService")
@@ -27,3 +32,5 @@ if GitService is not None:
     __all__.append("GitService")
 if NotionService is not None:
     __all__.append("NotionService")
+if FinanceService is not None:
+    __all__.append("FinanceService")
