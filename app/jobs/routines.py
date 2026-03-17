@@ -6,7 +6,7 @@ from app.services.telegram_service import TelegramService
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.jobs.periodic_review import PeriodicReviewJob
-from app.utils.context_fetcher import ContextFetcher
+from app.services.context_fetcher import ContextFetcher
 from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)

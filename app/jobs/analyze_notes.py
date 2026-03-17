@@ -4,7 +4,7 @@ import datetime
 from pathlib import Path
 from app.services.prompt_manager import PromptManager
 from app.services.llm_service import LLMService
-from app.utils.context_fetcher import ContextFetcher
+from app.services.context_fetcher import ContextFetcher
 from app.core.paths import output_dir
 from app.utils.jsonl_kv_store import upsert_jsonl
 

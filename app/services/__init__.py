@@ -23,6 +23,11 @@ try:
 except Exception:
     FinanceService = None
 
+try:
+    from .context_fetcher import ContextFetcher
+except Exception:
+    ContextFetcher = None
+
 __all__ = []
 if LLMService is not None:
     __all__.append("LLMService")
@@ -34,3 +39,5 @@ if NotionService is not None:
     __all__.append("NotionService")
 if FinanceService is not None:
     __all__.append("FinanceService")
+if ContextFetcher is not None:
+    __all__.append("ContextFetcher")

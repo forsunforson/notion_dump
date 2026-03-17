@@ -48,6 +48,7 @@
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送 (Send Message)，并调用 `ChatLogService` 记录 Bot 发送的消息。
 -   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划等；对外提供 `build_review_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
+-   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
 
 ### 工具链 (Utilities - `app/utils/`)
 > **复用原则 (Reuse Principles)**:
@@ -56,7 +57,6 @@
 > 3. **避免逻辑漂移**: 核心业务逻辑（如“如何判定一篇文档是日记”）应收敛在 `app/utils` 或 `app/services` 中，避免在多个 Job 中重复实现导致规则不一致。
 
 -   **`notion_converter.py`**: 核心转换器。负责 Notion Block -> Markdown 的渲染，以及 Page Properties -> YAML Frontmatter 的映射。
--   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
 -   **`plain.py`**: 通用数据清洗工具。提供 `to_plain` 函数，递归将 ruamel.yaml 对象转换为原生 Python dict/list。
 -   **`notion_ids.py`**: ID 标准化工具。提供 `normalize_uuid` 函数，统一 Notion UUID 格式（带横杠）。
 -   **`notion_meta.py`**: 元数据提取工具。提供 `extract_title` 和 `get_page_meta` 函数，从 Notion 对象中提取关键信息。

@@ -10,7 +10,7 @@ import yaml
 from app.core.paths import output_dir as _output_dir, reports_dir as _reports_dir
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
-from app.utils.context_fetcher import ContextFetcher
+from app.services.context_fetcher import ContextFetcher
 from app.utils.frontmatter import parse_frontmatter
 from app.utils.timezone_utils import load_profile_timezone
 

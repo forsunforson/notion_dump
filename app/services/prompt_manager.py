@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from app.utils.context_fetcher import ContextFetcher
+from app.services.context_fetcher import ContextFetcher
 
 METRICS_EXTRACTION_SYSTEM_PROMPT = (
     "你是一个结构化信息抽取器。你只负责从文本中抽取客观指标，禁止主观总结与发挥。"

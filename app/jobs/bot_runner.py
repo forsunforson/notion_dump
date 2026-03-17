@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 from app.services.llm_service import LLMService
 from app.services.chat_log_service import ChatLogService
 from app.services.prompt_manager import PromptManager
-from app.utils.context_fetcher import ContextFetcher
+from app.services.context_fetcher import ContextFetcher
 from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_profile_attribute
 from app.skills.update_manual_asset_skill import UPDATE_MANUAL_ASSET_SCHEMA, update_manual_asset_value
