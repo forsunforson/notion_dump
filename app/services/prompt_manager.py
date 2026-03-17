@@ -214,6 +214,49 @@ MONTHLY_REVIEW_USER_PROMPT = """
 （提出 1-3 个极其尖锐的开放式问题。这些问题必须超越单日维度的执行，直指系统性缺陷、长期执念或时间分配的荒谬性。每个问题独立成行，使用数字序号。例如：“如果未来 11 年的每一天都重复这 30 天的轨迹，你的长线实验会得到期望的结果，还是彻底崩盘？”）
 """.strip()
 
+TRADE_ANALYSIS_USER_PROMPT_TEMPLATE = """
+# Context Injection (上下文注入)
+【用户的长期投资哲学】: {investment_philosophy} 
+（注：特别关注 PE 30 减仓纪律，以及对冲贪婪与心理纠结的需求）
+【用户近期的核心目标】: {monthly_goal}
+（注：特别关注心动公司仓位降低、以及总资产目标的执行进度）
+【本期动态资产净值】: {net_worth_cny}
+【当地时间】: {as_of_date} ({timezone})
+
+<trade_snapshot_logs time_order="old_to_new">
+{trade_logs}
+</trade_snapshot_logs>
+
+# Analysis Rules (人机互补准则)
+1. **数据剥离**：只分析 <trade_snapshot_logs> 里真实出现的动作、价格、数量。缺失的逻辑一律标记为“【逻辑断层】”，绝对禁止替用户脑补做多/做空理由。
+2. **纪律锚定**：必须将每一笔交易与用户的【投资哲学】和【近期核心目标】进行对齐测试。
+3. **刺穿叙事**：人类极易被市场情绪和“宏大叙事”裹挟。你的任务是用机会成本和证伪机制，把用户按在冰冷的现实摩擦。
+4. **禁止说教**：不要给任何“建议”，不要说“继续保持”。只给出现状的镜像、偏差的警告和致命的提问。
+
+输出格式（Markdown），严格使用以下结构（不要额外开头结尾）：
+
+# Output Format (严格遵循以下 Markdown 输出，禁止额外寒暄)
+
+### 4.1 动作解剖 (Anatomy of Trades)
+- 仅用精炼的列表，按时间顺序呈现：`[日期] | 标的 | 动作 | 成交价 | 消耗/回笼资金 | 情绪标签(若有)`
+- **客观洞察 (AI Insight)**：用 1 句话总结本期交易对整体流动性（Checking Account）和核心目标（如降仓位浓度）的【实际物理影响】。是使其更脆弱了，还是更具反脆弱性？
+
+### 4.2 纪律对齐与异动裁决 (Discipline & Verdict)
+- **合规判定**：这笔交易是否严格遵守了“PE 30 减仓/卖出触发机制”？是否符合“降低单票极高浓度”的当前目标？
+- **冷酷裁决**：用 2-3 个 Bullets 直言不讳地指出——哪些操作是知行合一的纪律执行？哪些是典型的 FOMO (错失恐惧)、过度自信或被短期利好裹挟的违纪？若发现违纪，直接判定为“逻辑失效”。
+
+### 4.3 机会成本的算力审判 (Opportunity Cost)
+- **赔率对比**：动用的这笔现金，其换取的“潜在收益率与确定性”，是否绝对碾压将其留在 Checking Account 吃无风险利息，或投入长线实验标的（如长安B股吃息）？
+- 若理由不充分，输出固定裁决：“【无效摩擦】：此次交易的胜率优势未能覆盖其带来的心理磨耗与流动性丧失。”
+
+### 4.4 证伪闹钟与苏格拉底拷问 (Falsification & Socratic Interrogation)
+（这是人机互补的核心：给出客观的退出条件，同时攻击人类的主观执念）
+- **硬性证伪条件**：为本期新增的头寸或异动的持仓，设定 1-2 个**不可篡改的未来物理观察点**（例如：具体的财务指标阈值、明确的时间节点、跌破某价格位）。
+- **灵魂拷问**：提出 1-2 个极其尖锐的开放式问题。
+  - *范例 1*：“你设定了明确的退出机制来对冲贪婪，但本次操作却在目标价附近犹疑。让你迟迟不愿按计划扣动扳机的，究竟是对企业基本面跃升的精准测算，还是对‘卖飞’的虚荣心恐惧？”
+  - *范例 2*：“将重仓股浓度从 95% 降至 90% 的动作执行得如此缓慢，如果明天大盘发生 20% 的无差别系统性回撤，你目前的现金储备能否让你保持绝对的心理平静？”
+""".strip()
+
 
 class PromptManager:
     DAILY_ENTRY_TITLE = "Daily Entry"
@@ -290,10 +333,12 @@ class PromptManager:
         self.profile_path = self.config_dir / "profile.yaml"
         self.templates_dir = self.config_dir / "templates"
         self.soul_path = project_root / "docs" / "SOUL.md"
+        self.investment_soul_path = project_root / "docs" / "INVESTMENT_SOUL.md"
         
         self._profile_str: Optional[str] = None
         self._profile_data: Optional[dict] = None
         self._soul_str: Optional[str] = None
+        self._investment_soul_str: Optional[str] = None
 
     def load_profile(self) -> str:
         if self._profile_str is not None:
@@ -400,6 +445,22 @@ class PromptManager:
             self._soul_str = ""
             return self._soul_str
 
+    def load_investment_soul(self) -> str:
+        if self._investment_soul_str is not None:
+            return self._investment_soul_str
+
+        if not self.investment_soul_path.exists():
+            self._investment_soul_str = ""
+            return self._investment_soul_str
+
+        try:
+            self._investment_soul_str = self.investment_soul_path.read_text(encoding="utf-8").strip()
+            return self._investment_soul_str
+        except Exception as e:
+            print(f"Error loading investment soul: {e}")
+            self._investment_soul_str = ""
+            return self._investment_soul_str
+
     def _append_soul(self, system_prompt: str) -> str:
         base = (system_prompt or "").strip()
         soul = self.load_soul()
@@ -425,6 +486,47 @@ class PromptManager:
             metrics_trend=(metrics_trend or "").strip(),
             notes_content=(notes_content or "").strip(),
         )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def build_trade_analysis_prompt(
+        self,
+        *,
+        profile: str,
+        trade_logs: str,
+        as_of_date: str,
+        timezone: str,
+        investment_philosophy: str | None = None,
+        monthly_goal: str | None = None,
+        net_worth_cny: str | int | float | None = None,
+    ) -> list[dict]:
+        inv_soul = self.load_investment_soul()
+        system_prompt = f"{inv_soul}\n\n# Profile\n{(profile or '').strip()}".strip()
+        pd = self.get_profile_data() or {}
+        if investment_philosophy is None:
+            v = pd.get("investment_philosophy")
+            investment_philosophy = v if isinstance(v, str) else ""
+        if monthly_goal is None:
+            rf = pd.get("recent_focus") if isinstance(pd.get("recent_focus"), dict) else {}
+            v = rf.get("monthly_goal") if isinstance(rf, dict) else None
+            monthly_goal = v if isinstance(v, str) else ""
+        if net_worth_cny is None:
+            net_worth_str = ""
+        else:
+            net_worth_str = str(net_worth_cny)
+        investment_philosophy = (investment_philosophy or "").strip() or "缺失"
+        monthly_goal = (monthly_goal or "").strip() or "缺失"
+        net_worth_str = (net_worth_str or "").strip() or "缺失"
+        user_prompt = TRADE_ANALYSIS_USER_PROMPT_TEMPLATE.format(
+            investment_philosophy=investment_philosophy,
+            monthly_goal=monthly_goal,
+            net_worth_cny=net_worth_str,
+            as_of_date=(as_of_date or "").strip(),
+            timezone=(timezone or "").strip(),
+            trade_logs=(trade_logs or "").strip(),
+        ).strip()
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

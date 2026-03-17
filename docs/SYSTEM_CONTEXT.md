@@ -47,8 +47,8 @@
 -   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送 (Send Message)，并调用 `ChatLogService` 记录 Bot 发送的消息。
--   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划等；对外提供 `build_review_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中；日记判定逻辑由 `ContextFetcher.is_daily_entry` 统一提供。
--   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆。
+-   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划，以及交易复盘（以 `INVESTMENT_SOUL.md + Profile` 作为 system）；对外提供 `build_review_prompt(...)`、`build_trade_analysis_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中。
+-   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；并提供 Markdown 扫描与过滤收集能力（`collect_markdown_by_filters`），将筛选规则收敛为可组合的 filter functions。
 
 ### 工具链 (Utilities - `app/utils/`)
 > **复用原则 (Reuse Principles)**:
@@ -99,6 +99,10 @@ status: "Done"
 ## 2. 偏离警告 (The Guardian's Alert)
 
 ## 3. 灵魂拷问 (Socratic Questions)
+```
+对于 `weekly/monthly`，若在过去 7 天内检测到交易快照日志（正文包含 `Trade Snapshot Log`），会在报告末尾追加：
+```markdown
+## 4. 交易复盘 (Trade Log Analysis)
 ```
 
 ### 量化指标 (`notion_output/metrics.jsonl`)

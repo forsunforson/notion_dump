@@ -5,10 +5,11 @@ import datetime
 import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from typing import Callable
 import yaml
 
 from app.core.paths import project_root, config_dir, output_dir, reports_dir
-from app.utils.frontmatter import parse_frontmatter_meta
+from app.utils.frontmatter import parse_frontmatter, parse_frontmatter_meta
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class ContextFetcher:
     DIARY_TAGS = {"Diary", "日记"}
     DIARY_TYPE_FIELD = "type"
     DIARY_TYPE_VALUES = {"diary", "Diary", "日记"}
+    TRADE_LOG_MARKER = "Trade Snapshot Log"
 
     def __init__(self):
         self.project_root = project_root()
@@ -52,6 +54,141 @@ class ContextFetcher:
 
         title = metadata.get("title", "")
         return isinstance(title, str) and title.strip() == cls.DAILY_ENTRY_TITLE
+
+    @classmethod
+    def is_trade_log_entry(cls, content: str) -> bool:
+        if not content:
+            return False
+        return re.search(re.escape(cls.TRADE_LOG_MARKER), content, flags=re.IGNORECASE) is not None
+
+    def collect_markdown_by_filters(
+        self,
+        *,
+        filters: dict[str, Callable[[str], bool]],
+    ) -> tuple[int, dict[str, list[dict]]]:
+        if not self.notion_output_dir.exists():
+            return 0, {k: [] for k in filters.keys()}
+
+        md_files = list(self.notion_output_dir.glob("**/*.md"))
+        buckets: dict[str, list[dict]] = {k: [] for k in filters.keys()}
+
+        for md_file in md_files:
+            try:
+                raw = md_file.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Failed to read file {md_file}: {e}")
+                continue
+
+            for name, fn in filters.items():
+                try:
+                    ok = fn(raw)
+                except Exception as e:
+                    logger.warning(f"Filter {name} failed for file {md_file}: {e}")
+                    continue
+                if ok:
+                    buckets[name].append({"path": str(md_file), "raw": raw})
+
+        return len(md_files), buckets
+
+    def make_daily_entry_filter(
+        self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
+    ) -> Callable[[str], bool]:
+        def _f(raw: str) -> bool:
+            if not self.is_daily_entry(raw):
+                return False
+            meta = self.parse_frontmatter(raw)
+            if not meta:
+                return False
+            created_utc = self._parse_created_time_utc(meta)
+            if not created_utc:
+                return False
+            return start_utc <= created_utc < end_utc
+
+        return _f
+
+    def make_trade_log_filter(
+        self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
+    ) -> Callable[[str], bool]:
+        def _f(raw: str) -> bool:
+            if not self.is_trade_log_entry(raw):
+                return False
+            meta = self.parse_frontmatter(raw)
+            if not meta:
+                return False
+            created_utc = self._parse_created_time_utc(meta)
+            if not created_utc:
+                return False
+            return start_utc <= created_utc < end_utc
+
+        return _f
+
+    def build_entry(
+        self,
+        *,
+        raw: str,
+        path: str | Path,
+        tz: ZoneInfo | None = None,
+        include_path: bool = False,
+    ) -> dict | None:
+        tz = tz or load_profile_timezone()
+        frontmatter, body = parse_frontmatter(raw or "")
+        if not frontmatter:
+            return None
+        created_utc = self._parse_created_time_utc(frontmatter)
+        if not created_utc:
+            return None
+        title = self._get_title(frontmatter, Path(path))
+        local_date = created_utc.astimezone(tz).date().isoformat()
+        cleaned_body = self._clean_body(body, title)
+        entry: dict = {
+            "created_utc": created_utc,
+            "local_date": local_date,
+            "title": title,
+            "body": cleaned_body,
+        }
+        if include_path:
+            entry["path"] = str(path)
+        return entry
+
+    @staticmethod
+    def _parse_created_time_utc(frontmatter: dict) -> datetime.datetime | None:
+        value = frontmatter.get("created_time")
+        if not value:
+            return None
+        if isinstance(value, datetime.datetime):
+            dt = value
+        elif isinstance(value, str):
+            s = value.strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            try:
+                dt = datetime.datetime.fromisoformat(s)
+            except ValueError:
+                return None
+        else:
+            return None
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+
+    @staticmethod
+    def _get_title(frontmatter: dict, md_file: Path) -> str:
+        title = frontmatter.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+        return md_file.stem
+
+    @staticmethod
+    def _clean_body(body: str, title: str) -> str:
+        if not body:
+            return ""
+        stripped = body.lstrip()
+        if stripped.startswith("# "):
+            first_line = stripped.splitlines()[0][2:].strip()
+            if first_line == title:
+                stripped = "\n".join(stripped.splitlines()[1:]).lstrip("\n")
+        return stripped.strip()
 
     def get_profile(self) -> dict:
         if not self.profile_file.exists():

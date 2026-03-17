@@ -11,7 +11,6 @@ from app.core.paths import output_dir as _output_dir, reports_dir as _reports_di
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.services.context_fetcher import ContextFetcher
-from app.utils.frontmatter import parse_frontmatter
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -44,44 +43,49 @@ class PeriodicReviewJob:
         start_date, end_date = self._resolve_date_range(start_date=start_date, end_date=end_date)
         start_utc, end_utc = self._local_date_range_to_utc(start_date, end_date)
 
-        md_files = self._list_markdown_files()
-        logger.info(f"Found {len(md_files)} markdown files under {OUTPUT_DIR}/")
+        include_trade_analysis = self.review_type in {"weekly", "monthly"}
+        trade_entries: list[dict] = []
+        trade_start_date: datetime.date | None = None
+        trade_end_date: datetime.date | None = None
+        trade_start_utc: datetime.datetime | None = None
+        trade_end_utc: datetime.datetime | None = None
+        today_local = datetime.datetime.now(self.tz).date()
+        if include_trade_analysis:
+            trade_end_date = today_local
+            trade_start_date = today_local - datetime.timedelta(days=6)
+            trade_start_utc, trade_end_utc = self._local_date_range_to_utc(trade_start_date, trade_end_date)
 
+        cf = ContextFetcher()
+        filters: dict[str, object] = {
+            "diary": cf.make_daily_entry_filter(start_utc=start_utc, end_utc=end_utc),
+        }
+        if include_trade_analysis and trade_start_utc and trade_end_utc:
+            filters["trade"] = cf.make_trade_log_filter(start_utc=trade_start_utc, end_utc=trade_end_utc)
+
+        md_count, buckets = cf.collect_markdown_by_filters(filters=filters)
         diary_entries = []
-        for md_file in md_files:
-            try:
-                raw = md_file.read_text(encoding="utf-8")
-            except Exception as e:
-                logger.warning(f"Failed to read file {md_file}: {e}")
-                continue
-
-            frontmatter, body = parse_frontmatter(raw)
-            if not frontmatter:
-                continue
-            if not ContextFetcher.is_daily_entry(raw):
-                continue
-
-            created_utc = self._parse_created_time_utc(frontmatter)
-            if not created_utc:
-                continue
-            if not (start_utc <= created_utc < end_utc):
-                continue
-
-            title = self._get_title(frontmatter, md_file)
-            local_date = created_utc.astimezone(self.tz).date().isoformat()
-            cleaned_body = self._clean_body(body, title)
-
-            diary_entries.append(
-                {
-                    "created_utc": created_utc,
-                    "local_date": local_date,
-                    "title": title,
-                    "body": cleaned_body,
-                }
-            )
-
+        for it in buckets.get("diary") or []:
+            e = cf.build_entry(raw=it.get("raw") or "", path=it.get("path") or "<unknown>")
+            if e:
+                diary_entries.append(e)
         diary_entries.sort(key=lambda x: x["created_utc"])
+
+        trade_entries = []
+        for it in buckets.get("trade") or []:
+            e = cf.build_entry(
+                raw=it.get("raw") or "",
+                path=it.get("path") or "<unknown>",
+                include_path=True,
+            )
+            if e:
+                trade_entries.append(e)
+        trade_entries.sort(key=lambda x: x["created_utc"])
+        logger.info(f"Found {md_count} markdown files under {OUTPUT_DIR}/")
         logger.info(f"Selected {len(diary_entries)} diary entries in range.")
+        if include_trade_analysis:
+            logger.info(
+                f"Selected {len(trade_entries)} trade snapshot logs in range {trade_start_date} ~ {trade_end_date}."
+            )
 
         metrics = self._load_metrics_in_range(start_date=start_date, end_date=end_date)
         logger.info(f"Selected {len(metrics)} metrics rows in range.")
@@ -110,8 +114,8 @@ class PeriodicReviewJob:
             )
 
         max_tokens = self._max_tokens_for_review_type(self.review_type)
+        llm = LLMService()
         try:
-            llm = LLMService()
             report_md = await llm.ask_text(
                 system_prompt,
                 user_prompt,
@@ -142,8 +146,80 @@ class PeriodicReviewJob:
                     "1. 你真正想从这次回顾中得到什么？\n"
                 ).strip()
 
+        if include_trade_analysis and trade_entries and trade_start_date and trade_end_date:
+            trade_logs_text = self._format_trade_logs_content(trade_entries)
+            net_worth_cny = self._load_latest_net_worth_cny()
+            trade_messages = self.prompt_manager.build_trade_analysis_prompt(
+                profile=profile_text,
+                trade_logs=trade_logs_text,
+                as_of_date=today_local.isoformat(),
+                timezone=self.tz.key,
+                net_worth_cny=net_worth_cny,
+            )
+            trade_system_prompt = trade_messages[0]["content"]
+            trade_user_prompt = trade_messages[1]["content"]
+            try:
+                trade_md = await llm.ask_text(
+                    trade_system_prompt,
+                    trade_user_prompt,
+                    max_tokens=4000,
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate trade analysis via LLM: {e}")
+                trade_md = ""
+            trade_md = (trade_md or "").strip()
+            if trade_md:
+                report_md = (
+                    report_md.rstrip()
+                    + "\n\n## 4. 交易复盘 (Trade Log Analysis)\n\n"
+                    + trade_md
+                    + "\n"
+                )
+
         out_path.write_text(report_md + "\n", encoding="utf-8")
         return report_md
+
+    def _load_latest_net_worth_cny(self) -> float | None:
+        metrics_path = OUTPUT_DIR / METRICS_FILENAME
+        if not metrics_path.exists():
+            return None
+
+        latest_dt: datetime.datetime | None = None
+        latest_val: float | None = None
+        try:
+            with open(metrics_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = (line or "").strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    v = obj.get("net_worth_cny")
+                    if not isinstance(v, (int, float)) or isinstance(v, bool):
+                        continue
+                    ts = obj.get("timestamp")
+                    if not isinstance(ts, str) or not ts.strip():
+                        continue
+                    s = ts.strip()
+                    if s.endswith("Z"):
+                        s = s[:-1] + "+00:00"
+                    try:
+                        dt = datetime.datetime.fromisoformat(s)
+                    except ValueError:
+                        continue
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=datetime.timezone.utc)
+                    dt = dt.astimezone(datetime.timezone.utc)
+                    if latest_dt is None or dt > latest_dt:
+                        latest_dt = dt
+                        latest_val = float(v)
+        except Exception:
+            return None
+        return latest_val
 
     def _resolve_date_range(
         self, start_date: datetime.date | None, end_date: datetime.date | None
@@ -314,6 +390,44 @@ class PeriodicReviewJob:
                 parts.append(f"{header}\n{body}")
             else:
                 parts.append(f"{header}\n（空）")
+        return "\n\n---\n\n".join(parts).strip()
+
+    def _format_trade_logs_content(
+        self,
+        entries: list[dict],
+        *,
+        max_entries: int = 20,
+        max_chars_per_entry: int = 1800,
+        max_total_chars: int = 24000,
+    ) -> str:
+        if not entries:
+            return ""
+
+        if len(entries) > max_entries:
+            keep_head = max_entries // 2
+            keep_tail = max_entries - keep_head
+            sliced = list(entries[:keep_head]) + [{"__ellipsis__": True}] + list(entries[-keep_tail:])
+        else:
+            sliced = list(entries)
+
+        parts: list[str] = []
+        total = 0
+        for e in sliced:
+            if e.get("__ellipsis__"):
+                parts.append("...\n(…中间省略)\n...")
+                continue
+            header = f"### {e.get('local_date','').strip()} {e.get('title','').strip()}".strip()
+            body = (e.get("body") or "").strip()
+            if len(body) > max_chars_per_entry:
+                body = body[:max_chars_per_entry].rstrip() + "\n(…截断)"
+            block = f"{header}\n{body}".strip()
+            if not block:
+                continue
+            if total + len(block) > max_total_chars:
+                break
+            parts.append(block)
+            total += len(block)
+
         return "\n\n---\n\n".join(parts).strip()
 
     def _format_metrics_trend(
