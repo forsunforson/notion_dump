@@ -77,15 +77,15 @@ class DailyRoutines:
     async def _generate_today_workout_plan(self) -> str:
         profile = self.fetcher.get_profile()
         user_name = profile.get("name", "ywy")
+        fitness_plan = profile.get("fitness_plan", {})
         physical_baseline = profile.get("physical_baseline", {})
 
         time_info = self.fetcher.get_time_info()
         current_date = time_info.get("current_date", "")
         current_weekday = time_info.get("current_weekday", "")
-
-        weekly_routine = physical_baseline.get("weekly_routine", {})
-        routine_desc = weekly_routine.get("description", "未设置")
-        routine_pattern = weekly_routine.get("pattern", "未设置")
+        
+        weekly_routine = fitness_plan.get("weekly_cycle", {})
+        routine_desc = fitness_plan.get("recent_focus", "") or "未设置"
         primary_goals = physical_baseline.get("primary_goals", "") or "未设置"
 
         recent_metrics = self.fetcher.get_recent_metrics(3)
@@ -100,7 +100,7 @@ class DailyRoutines:
         system_prompt, user_prompt = self.prompt_manager.build_workout_plan_prompts(
             user_name=user_name,
             routine_desc=routine_desc,
-            routine_pattern=routine_pattern,
+            routine_pattern=str(weekly_routine),
             current_date=current_date,
             current_weekday=current_weekday,
             primary_goals=primary_goals,
