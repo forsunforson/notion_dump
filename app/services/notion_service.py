@@ -508,6 +508,7 @@ class NotionService:
     def _get_hstech_beta_line(self, date_local: datetime.date) -> str | None:
         if (os.getenv("CHRONOFOLD_DISABLE_YFINANCE") or "").strip() == "1":
             return None
+        symbol = "3067.HK"
         key = date_local.strftime("%Y-%m-%d")
         cached = self._trade_beta_cache.get(key)
         if cached:
@@ -518,7 +519,7 @@ class NotionService:
             return None
         try:
             df = yf.download(
-                "^HSTECH",
+                symbol,
                 period="10d",
                 interval="1d",
                 group_by="ticker",
@@ -527,7 +528,7 @@ class NotionService:
                 progress=False,
             )
         except Exception as e:
-            logger.warning(f"Failed to fetch ^HSTECH via yfinance: {e}")
+            logger.warning(f"Failed to fetch {symbol} via yfinance: {e}")
             return None
         try:
             close = None
@@ -535,8 +536,13 @@ class NotionService:
                 return None
             cols = getattr(df, "columns", None)
             if cols is not None and hasattr(cols, "names") and cols.names and len(cols.names) > 1:
-                if "^HSTECH" in getattr(cols, "get_level_values")(0):
-                    close = df["^HSTECH"]["Close"]
+                try:
+                    if symbol in getattr(cols, "get_level_values")(0):
+                        close = df[symbol]["Close"]
+                    if close is None and symbol in getattr(cols, "get_level_values")(-1):
+                        close = df[("Close", symbol)]
+                except Exception:
+                    close = None
             if close is None and "Close" in df:
                 close = df["Close"]
             if close is None:
@@ -556,11 +562,11 @@ class NotionService:
                 tag = "大跌"
             else:
                 tag = "平盘"
-            line = f"大盘水位 (Beta)： 恒生科技指数当日表现 {tag} ({pct:+.2%})"
+            line = f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
             self._trade_beta_cache[key] = line
             return line
         except Exception as e:
-            logger.warning(f"Failed to parse ^HSTECH history: {e}")
+            logger.warning(f"Failed to parse {symbol} history: {e}")
             return None
 
     @staticmethod
