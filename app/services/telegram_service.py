@@ -1,9 +1,10 @@
 import os
 import logging
+import asyncio
 import aiohttp
-from typing import Optional
 
 from app.services.chat_log_service import ChatLogService
+from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)
 
@@ -60,3 +61,13 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Unexpected error sending Telegram message: {e}")
             return False
+
+    async def send_long_message(self, text: str, max_chars: int = 3500) -> bool:
+        parts = split_text_smart(text, max_chars=max_chars)
+        for i, part in enumerate(parts):
+            ok = await self.send_message(part)
+            if not ok:
+                return False
+            if i < len(parts) - 1:
+                await asyncio.sleep(1)
+        return True
