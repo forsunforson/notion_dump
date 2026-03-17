@@ -12,6 +12,7 @@ from app.skills.metrics_skill import METRICS_SKILL_SCHEMA, upsert_daily_metric
 from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_profile_attribute
 from app.skills.update_manual_asset_skill import UPDATE_MANUAL_ASSET_SCHEMA, update_manual_asset_value
 from app.skills.update_portfolio_skill import LOG_PORTFOLIO_TRANSACTION_SCHEMA, log_portfolio_transaction
+from app.skills.context_collect_skill import COLLECT_MARKDOWN_CONTEXT_SCHEMA, collect_markdown_context
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class TelegramBotRunner:
                 "update_profile_attribute": 0,
                 "update_manual_asset_value": 0,
                 "log_portfolio_transaction": 0,
+                "collect_markdown_context": 0,
             }
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
@@ -104,17 +106,23 @@ class TelegramBotRunner:
                 executed["log_portfolio_transaction"] += 1
                 return log_portfolio_transaction(**kwargs)
 
+            def wrapped_collect_markdown_context(**kwargs) -> str:
+                executed["collect_markdown_context"] += 1
+                return collect_markdown_context(**kwargs)
+
             tools = [
                 METRICS_SKILL_SCHEMA,
                 UPDATE_PROFILE_SKILL_SCHEMA,
                 UPDATE_MANUAL_ASSET_SCHEMA,
                 LOG_PORTFOLIO_TRANSACTION_SCHEMA,
+                COLLECT_MARKDOWN_CONTEXT_SCHEMA,
             ]
             tool_map = {
                 "upsert_daily_metric": wrapped_upsert_daily_metric,
                 "update_profile_attribute": wrapped_update_profile_attribute,
                 "update_manual_asset_value": wrapped_update_manual_asset_value,
                 "log_portfolio_transaction": wrapped_log_portfolio_transaction,
+                "collect_markdown_context": wrapped_collect_markdown_context,
             }
 
             chat_id = update.effective_chat.id
