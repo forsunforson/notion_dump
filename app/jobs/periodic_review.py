@@ -22,11 +22,6 @@ METRICS_FILENAME = "metrics.jsonl"
 
 LOCAL_TIMEZONE = "Asia/Shanghai"
 
-DIARY_TAGS = {"Diary", "日记"}
-DIARY_TYPE_FIELD = "type"
-DIARY_TYPE_VALUES = {"diary", "Diary", "日记"}
-TITLE_FALLBACK_VALUES = {"Daily Entry"}
-
 REVIEW_TYPES = {"daily", "weekly", "monthly", "custom"}
 
 TOKEN_ESTIMATE_WARN_THRESHOLD = 30000
@@ -63,7 +58,7 @@ class PeriodicReviewJob:
             frontmatter, body = parse_frontmatter(raw)
             if not frontmatter:
                 continue
-            if not (ContextFetcher.is_daily_entry(raw) or self._is_diary(frontmatter)):
+            if not ContextFetcher.is_daily_entry(raw):
                 continue
 
             created_utc = self._parse_created_time_utc(frontmatter)
@@ -211,23 +206,6 @@ class PeriodicReviewJob:
             end_date + datetime.timedelta(days=1), datetime.time.min
         ).replace(tzinfo=self.tz)
         return start_local.astimezone(datetime.timezone.utc), end_local_exclusive.astimezone(datetime.timezone.utc)
-
-    def _is_diary(self, frontmatter: dict) -> bool:
-        type_value = frontmatter.get(DIARY_TYPE_FIELD)
-        if isinstance(type_value, str) and type_value.strip() in DIARY_TYPE_VALUES:
-            return True
-
-        tags_value = frontmatter.get("tags")
-        if isinstance(tags_value, list):
-            for t in tags_value:
-                if isinstance(t, str) and t.strip() in DIARY_TAGS:
-                    return True
-
-        title = frontmatter.get("title")
-        if isinstance(title, str) and title.strip() in TITLE_FALLBACK_VALUES:
-            return True
-
-        return False
 
     def _get_title(self, frontmatter: dict, md_file: Path) -> str:
         title = frontmatter.get("title")

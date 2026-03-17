@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 class ContextFetcher:
     DAILY_ENTRY_TITLE = "Daily Entry"
+    DIARY_TAGS = {"Diary", "日记"}
+    DIARY_TYPE_FIELD = "type"
+    DIARY_TYPE_VALUES = {"diary", "Diary", "日记"}
 
     def __init__(self):
         self.project_root = project_root()
@@ -34,8 +37,21 @@ class ContextFetcher:
     @classmethod
     def is_daily_entry(cls, content: str) -> bool:
         metadata = cls.parse_frontmatter(content)
+        if not metadata:
+            return False
+
+        type_value = metadata.get(cls.DIARY_TYPE_FIELD)
+        if isinstance(type_value, str) and type_value.strip() in cls.DIARY_TYPE_VALUES:
+            return True
+
+        tags_value = metadata.get("tags")
+        if isinstance(tags_value, list):
+            for t in tags_value:
+                if isinstance(t, str) and t.strip() in cls.DIARY_TAGS:
+                    return True
+
         title = metadata.get("title", "")
-        return isinstance(title, str) and title == cls.DAILY_ENTRY_TITLE
+        return isinstance(title, str) and title.strip() == cls.DAILY_ENTRY_TITLE
     
     def get_profile(self) -> dict:
         if not self.profile_file.exists():
