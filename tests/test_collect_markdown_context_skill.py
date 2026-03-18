@@ -31,6 +31,7 @@ ok
             (out_dir / "t.md").write_text(
                 """---
 title: "Trade"
+action: "BUY"
 created_time: "2026-03-11T00:00:00Z"
 ---
 

@@ -26,6 +26,7 @@ hello
             trade_md = """---
 id: "2"
 title: "Trade 1"
+action: "SELL"
 created_time: "2026-03-11T00:00:00Z"
 ---
 

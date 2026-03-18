@@ -21,6 +21,7 @@ class ContextFetcher:
     DIARY_TYPE_FIELD = "type"
     DIARY_TYPE_VALUES = {"diary", "Diary", "日记"}
     TRADE_LOG_MARKER = "Trade Snapshot Log"
+    TRADE_ACTION_VALUES = {"BUY", "SELL"}
 
     def __init__(self):
         self.project_root = project_root()
@@ -59,7 +60,15 @@ class ContextFetcher:
     def is_trade_log_entry(cls, content: str) -> bool:
         if not content:
             return False
-        return re.search(re.escape(cls.TRADE_LOG_MARKER), content, flags=re.IGNORECASE) is not None
+        metadata = cls.parse_frontmatter(content)
+        if not metadata:
+            return False
+        v = metadata.get("action")
+        if v is None:
+            v = metadata.get("Action")
+        if not isinstance(v, str) or not v.strip():
+            return False
+        return v.strip().upper() in cls.TRADE_ACTION_VALUES
 
     def collect_markdown_by_filters(
         self,
