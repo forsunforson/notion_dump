@@ -38,11 +38,35 @@ Trade Snapshot Log
 """,
                 encoding="utf-8",
             )
+            (out_dir / "b.md").write_text(
+                """---
+title: "Book"
+type: "book_review"
+created_time: "2026-03-11T00:00:00Z"
+---
+
+good book
+""",
+                encoding="utf-8",
+            )
+            (out_dir / "m.md").write_text(
+                """---
+title: "Movie"
+type: "movie_review"
+created_time: "2026-03-11T00:00:00Z"
+---
+
+good movie
+""",
+                encoding="utf-8",
+            )
 
             s = collect_markdown_context(
                 filters={
                     "diary": {"type": "daily_entry"},
                     "trade": {"type": "trade_log"},
+                    "book": {"type": "book_review"},
+                    "movie": {"type": "movie_review"},
                 },
                 start_date="2026-03-10",
                 end_date="2026-03-12",
@@ -54,4 +78,5 @@ Trade Snapshot Log
             self.assertIn("filters", obj)
             self.assertEqual(obj["filters"]["diary"]["count"], 1)
             self.assertEqual(obj["filters"]["trade"]["count"], 1)
-
+            self.assertEqual(obj["filters"]["book"]["count"], 1)
+            self.assertEqual(obj["filters"]["movie"]["count"], 1)

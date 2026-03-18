@@ -122,6 +122,40 @@ class ContextFetcher:
 
         return _f
 
+    def make_book_review_filter(
+        self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
+    ) -> Callable[[str], bool]:
+        def _f(raw: str) -> bool:
+            meta = self.parse_frontmatter(raw)
+            if not meta:
+                return False
+            t = meta.get("type")
+            if not (isinstance(t, str) and t.strip() == "book_review"):
+                return False
+            created_utc = self._parse_created_time_utc(meta)
+            if not created_utc:
+                return False
+            return start_utc <= created_utc < end_utc
+
+        return _f
+
+    def make_movie_review_filter(
+        self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
+    ) -> Callable[[str], bool]:
+        def _f(raw: str) -> bool:
+            meta = self.parse_frontmatter(raw)
+            if not meta:
+                return False
+            t = meta.get("type")
+            if not (isinstance(t, str) and t.strip() == "movie_review"):
+                return False
+            created_utc = self._parse_created_time_utc(meta)
+            if not created_utc:
+                return False
+            return start_utc <= created_utc < end_utc
+
+        return _f
+
     def build_entry(
         self,
         *,
