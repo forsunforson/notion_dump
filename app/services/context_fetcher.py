@@ -156,6 +156,28 @@ class ContextFetcher:
 
         return _f
 
+    def make_chatlog_filter(
+        self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
+    ) -> Callable[[str], bool]:
+        def _f(raw: str) -> bool:
+            meta = self.parse_frontmatter(raw)
+            if not meta:
+                return False
+            v = meta.get("category")
+            ok = False
+            if isinstance(v, str):
+                ok = v.strip() == "chatlog"
+            elif isinstance(v, list):
+                ok = any(isinstance(x, str) and x.strip() == "chatlog" for x in v)
+            if not ok:
+                return False
+            created_utc = self._parse_created_time_utc(meta)
+            if not created_utc:
+                return False
+            return start_utc <= created_utc < end_utc
+
+        return _f
+
     def build_entry(
         self,
         *,

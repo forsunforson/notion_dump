@@ -65,6 +65,7 @@ class TestNotionDailyChatLogBlocks(unittest.TestCase):
         db_obj = {
             "properties": {
                 "Name": {"type": "title"},
+                "Category": {"type": "select"},
             }
         }
         svc = NotionService(token="test-token")
@@ -81,6 +82,7 @@ class TestNotionDailyChatLogBlocks(unittest.TestCase):
         props = svc.client.pages.calls[0]["properties"]
         title_prop = props["Name"]["title"][0]["text"]["content"]
         self.assertEqual(title_prop, "2026-03-10 对话实录")
+        self.assertEqual(props["Category"]["select"]["name"], "chatlog")
 
         self.assertEqual(len(svc.client.blocks.children.calls), 1)
         children = svc.client.blocks.children.calls[0]["children"]

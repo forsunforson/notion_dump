@@ -60,6 +60,17 @@ good movie
 """,
                 encoding="utf-8",
             )
+            (out_dir / "c.md").write_text(
+                """---
+title: "Chatlog"
+category: "chatlog"
+created_time: "2026-03-11T00:00:00Z"
+---
+
+hi
+""",
+                encoding="utf-8",
+            )
 
             s = collect_markdown_context(
                 filters={
@@ -67,6 +78,7 @@ good movie
                     "trade": {"type": "trade_log"},
                     "book": {"type": "book_review"},
                     "movie": {"type": "movie_review"},
+                    "chat": {"type": "chatlog"},
                 },
                 start_date="2026-03-10",
                 end_date="2026-03-12",
@@ -80,3 +92,4 @@ good movie
             self.assertEqual(obj["filters"]["trade"]["count"], 1)
             self.assertEqual(obj["filters"]["book"]["count"], 1)
             self.assertEqual(obj["filters"]["movie"]["count"], 1)
+            self.assertEqual(obj["filters"]["chat"]["count"], 1)

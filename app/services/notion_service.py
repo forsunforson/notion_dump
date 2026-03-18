@@ -641,9 +641,39 @@ class NotionService:
                 self._daily_chat_log_page_cache[page_title] = page_id
                 return page_id
 
+        props_schema: dict[str, Any] = {}
+        try:
+            db = self.client.databases.retrieve(database_id=parent_database_id)
+            props_schema = (db.get("properties", {}) or {})
+            if not props_schema and (db.get("data_sources") or []):
+                ds_id = (db.get("data_sources") or [{}])[0].get("id")
+                if ds_id:
+                    ds_obj = self.client.request(path=f"data_sources/{ds_id}", method="GET")
+                    props_schema = (ds_obj.get("properties", {}) or {})
+        except Exception:
+            props_schema = {}
+
+        properties: dict[str, Any] = {
+            title_prop_name: {"title": self._build_rich_text(page_title)},
+        }
+
+        for real_name, prop_def in props_schema.items():
+            if not isinstance(real_name, str):
+                continue
+            if real_name.lower() != "category":
+                continue
+            prop_type = (prop_def.get("type") or "").strip()
+            if prop_type == "select":
+                properties[real_name] = {"select": {"name": "chatlog"}}
+            elif prop_type == "multi_select":
+                properties[real_name] = {"multi_select": [{"name": "chatlog"}]}
+            elif prop_type == "rich_text":
+                properties[real_name] = {"rich_text": self._build_rich_text("chatlog")}
+            break
+
         page = self.client.pages.create(
             parent={"database_id": parent_database_id},
-            properties={title_prop_name: {"title": self._build_rich_text(page_title)}},
+            properties=properties,
         )
         page_id = page.get("id")
         if not isinstance(page_id, str) or not page_id:

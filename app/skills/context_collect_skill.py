@@ -73,6 +73,9 @@ def collect_markdown_context(
         if t == "movie_review":
             compiled_filters[name] = cf.make_movie_review_filter(start_utc=start_utc, end_utc=end_utc)
             continue
+        if t == "chatlog":
+            compiled_filters[name] = cf.make_chatlog_filter(start_utc=start_utc, end_utc=end_utc)
+            continue
         if t == "contains":
             needle = spec.get("needle")
             if not isinstance(needle, str) or not needle.strip():
@@ -178,6 +181,7 @@ COLLECT_MARKDOWN_CONTEXT_SCHEMA = {
                                     "trade_log",
                                     "book_review",
                                     "movie_review",
+                                    "chatlog",
                                     "contains",
                                     "regex",
                                 ],
