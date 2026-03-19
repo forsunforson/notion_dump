@@ -43,7 +43,7 @@
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。
--   **`finance_service.py`**: 行情数据网关。封装行情/汇率数据读取接口，默认使用 `yfinance`，对上层逻辑屏蔽具体数据源实现。
+-   **`finance_service.py`**: 行情数据网关。封装行情/汇率数据读取接口，默认使用 `yfinance`，对上层逻辑屏蔽具体数据源实现；交易快照的 “3067.HK 当日表现” 优先按 “最新价 vs 昨收” 计算，并做短周期缓存以避免早盘拿到前一交易日数据后全天不刷新。
 -   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送 (Send Message)，并调用 `ChatLogService` 记录 Bot 发送的消息。

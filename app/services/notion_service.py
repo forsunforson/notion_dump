@@ -475,7 +475,7 @@ class NotionService:
                 now_local = dt.replace(tzinfo=datetime.timezone.utc).astimezone(tz)
             except Exception:
                 pass
-        market_beta_line = self._get_hstech_beta_line(now_local.date())
+        market_beta_line = self._get_hstech_beta_line(now_local)
         md = self._render_trade_snapshot_template(
             template_text,
             ticker=ticker,
@@ -507,15 +507,20 @@ class NotionService:
     def _load_profile_timezone(self) -> ZoneInfo:
         return load_profile_timezone()
 
-    def _get_hstech_beta_line(self, date_local: datetime.date) -> str | None:
+    def _get_hstech_beta_line(self, now_local: datetime.datetime) -> str | None:
         if (os.getenv("CHRONOFOLD_DISABLE_YFINANCE") or "").strip() == "1":
             return None
         symbol = "3067.HK"
-        key = date_local.strftime("%Y-%m-%d")
+        date_key = now_local.date().strftime("%Y-%m-%d")
+        hour_key = now_local.strftime("%H")
+        bucket = (int(now_local.strftime("%M")) // 15) * 15
+        key = f"{date_key}-{hour_key}-{bucket:02d}"
         cached = self._trade_beta_cache.get(key)
         if cached:
             return cached
-        pct = self.finance_service.daily_pct_change(symbol, period="10d", interval="1d")
+        pct = self.finance_service.pct_change_vs_prev_close(symbol, tz_name="Asia/Hong_Kong")
+        if pct is None:
+            pct = self.finance_service.daily_pct_change(symbol, period="10d", interval="1d")
         if pct is None:
             return None
 

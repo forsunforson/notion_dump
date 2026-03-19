@@ -2,6 +2,8 @@ import os
 import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
+import datetime
+from zoneinfo import ZoneInfo
 
 
 logger = logging.getLogger(__name__)
@@ -144,6 +146,96 @@ class FinanceService:
             return (last / prev) - 1.0
         except Exception as e:
             logger.warning("Failed to parse %s history: %s", symbol, str(e))
+            return None
+
+    def pct_change_vs_prev_close(
+        self,
+        symbol: str,
+        *,
+        tz_name: str = "Asia/Hong_Kong",
+    ) -> float | None:
+        if not symbol.strip() or not self.is_available():
+            return None
+        if self.data_source != "yfinance":
+            return None
+
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("Asia/Hong_Kong")
+
+        try:
+            obj = yf.Ticker(symbol.strip())
+        except Exception:
+            return None
+
+        last = None
+        try:
+            h = obj.history(period="1d", interval="1m")
+            if h is not None and not getattr(h, "empty", True):
+                s = h.get("Close")
+                if s is not None:
+                    s = s.dropna()
+                    if not getattr(s, "empty", True):
+                        last = float(s.iloc[-1])
+        except Exception:
+            last = None
+
+        if last is None or last <= 0:
+            return self.daily_pct_change(symbol.strip(), period="10d", interval="1d")
+
+        prev = None
+        try:
+            fi = getattr(obj, "fast_info", None)
+            if fi:
+                p = fi.get("previous_close")
+                if p is not None:
+                    prev = float(p)
+        except Exception:
+            prev = None
+
+        if prev is None or prev <= 0:
+            try:
+                today = datetime.datetime.now(tz).date()
+                h1d = obj.history(period="10d", interval="1d")
+                if h1d is not None and not getattr(h1d, "empty", True):
+                    s = h1d.get("Close")
+                    if s is not None:
+                        s = s.dropna()
+                        if not getattr(s, "empty", True):
+                            items: list[tuple[datetime.date, float]] = []
+                            for idx, v in s.items():
+                                d = None
+                                try:
+                                    if getattr(idx, "tzinfo", None) is not None:
+                                        d = idx.tz_convert(tz).date()
+                                    else:
+                                        d = idx.date()
+                                except Exception:
+                                    try:
+                                        d = datetime.date.fromisoformat(str(idx)[:10])
+                                    except Exception:
+                                        d = None
+                                if d is None:
+                                    continue
+                                try:
+                                    fv = float(v)
+                                except Exception:
+                                    continue
+                                items.append((d, fv))
+                            items.sort(key=lambda x: x[0])
+                            prev_items = [x for x in items if x[0] < today and x[1] > 0]
+                            if prev_items:
+                                prev = prev_items[-1][1]
+            except Exception:
+                prev = None
+
+        if prev is None or prev <= 0:
+            return self.daily_pct_change(symbol.strip(), period="10d", interval="1d")
+
+        try:
+            return (last / prev) - 1.0
+        except Exception:
             return None
 
     def hstech_beta_line(self, date_local, *, symbol: str = "3067.HK") -> str | None:
