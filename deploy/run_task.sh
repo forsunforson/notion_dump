@@ -7,6 +7,24 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT" || { echo "Failed to change directory to project root"; exit 1; }
 
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ""|\#*) continue ;;
+        esac
+        if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            k="${line%%=*}"
+            v="${line#*=}"
+            if [[ "$v" == \"*\" && "$v" == *\" ]]; then
+                v="${v:1:${#v}-2}"
+            elif [[ "$v" == \'*\' && "$v" == *\' ]]; then
+                v="${v:1:${#v}-2}"
+            fi
+            export "$k=$v"
+        fi
+    done < "$PROJECT_ROOT/.env"
+fi
+
 # Define log directory and file
 LOG_DIR="$PROJECT_ROOT/logs"
 
@@ -24,6 +42,7 @@ BACKUP_DIRS=("config/templates")
 
 # Parse --job parameter for logging
 JOB_TYPE="sync"
+SKIP_BACKUP="${CHRONOFOLD_SKIP_BACKUP:-0}"
 ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -35,6 +54,10 @@ while [[ $# -gt 0 ]]; do
         --log-level)
             ARGS+=("$1" "$2")
             shift 2
+            ;;
+        --skip-backup)
+            SKIP_BACKUP="1"
+            shift
             ;;
         *)
             ARGS+=("$1")
@@ -71,6 +94,12 @@ run_task() {
     EXIT_CODE=$?
 
     # --- Rclone Backup Step ---
+    if [ "$SKIP_BACKUP" = "1" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Backup] Skipped." >> "$LOG_FILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task Finished with exit code $EXIT_CODE" >> "$LOG_FILE"
+        echo "========================================================" >> "$LOG_FILE"
+        return
+    fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Backup] Starting Rclone sync..." >> "$LOG_FILE"
 
     if command -v rclone &> /dev/null; then

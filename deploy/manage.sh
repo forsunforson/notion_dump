@@ -252,7 +252,7 @@ show_run_menu() {
     echo "=========================================="
     echo "   🚀 Run Task Now"
     echo "=========================================="
-    echo "1. 🔄 Sync (Data sync and backup)"
+    echo "1. 🔄 Sync (Data sync)"
     echo "2. 🌅 Morning Routine (Morning greeting)"
     echo "3. 📊 Weekly Review (Weekly summary)"
     echo "4. 🗓️ Monthly Review (Monthly review report)"
@@ -286,7 +286,7 @@ run_task_now() {
     echo ""
     echo "🚀 Starting $job_name..."
     echo "------------------------------------------"
-    "$RUN_TASK_SCRIPT" --job "$job_type" "$@" --log-level DEBUG
+    "$RUN_TASK_SCRIPT" --job "$job_type" --skip-backup "$@" --log-level DEBUG
     echo "------------------------------------------"
     echo "✅ $job_name completed. Check output above or logs."
 }

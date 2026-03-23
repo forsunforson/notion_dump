@@ -50,15 +50,13 @@ require_env() {
 }
 
 verify_remote() {
-  require_env "RCLONE_CONFIG_CHRONOFOLD_BACKUP_TYPE"
-  require_env "RCLONE_CONFIG_CHRONOFOLD_BACKUP_CLIENT_ID"
-  require_env "RCLONE_CONFIG_CHRONOFOLD_BACKUP_CLIENT_SECRET"
-  require_env "RCLONE_CONFIG_CHRONOFOLD_BACKUP_SCOPE"
-  require_env "RCLONE_CONFIG_CHRONOFOLD_BACKUP_TOKEN"
+  require_env "RCLONE_CONFIG_GDRIVE_TYPE"
+  require_env "RCLONE_CONFIG_GDRIVE_SCOPE"
+  require_env "RCLONE_CONFIG_GDRIVE_TOKEN"
 
-  echo "🔍 Verifying rclone remote: chronofold_backup"
-  if ! rclone lsd chronofold_backup: --config /dev/null >/dev/null 2>&1; then
-    fatal "rclone verification failed. Run 'rclone lsd chronofold_backup: --config /dev/null -vv' and check your RCLONE_CONFIG_CHRONOFOLD_BACKUP_TOKEN in $ENV_FILE."
+  echo "🔍 Verifying rclone remote: gdrive"
+  if ! rclone lsd gdrive: --config /dev/null >/dev/null 2>&1; then
+    fatal "rclone verification failed. Run 'rclone lsd gdrive: --config /dev/null -vv' and check your RCLONE_CONFIG_GDRIVE_TOKEN in $ENV_FILE."
   fi
   echo "✅ rclone remote verified."
 }
