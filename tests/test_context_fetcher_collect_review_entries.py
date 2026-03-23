@@ -27,7 +27,8 @@ hello
 id: "2"
 title: "Trade 1"
 action: "SELL"
-created_time: "2026-03-11T00:00:00Z"
+date: "2026-03-11"
+created_time: "2026-03-20T00:00:00Z"
 ---
 
 Trade Snapshot Log
@@ -60,3 +61,4 @@ Trade Snapshot Log
             self.assertEqual(len(trades), 1)
             self.assertEqual(diaries[0]["title"], "Daily Entry")
             self.assertEqual(trades[0]["title"], "Trade 1")
+            self.assertEqual(trades[0]["local_date"], "2026-03-11")

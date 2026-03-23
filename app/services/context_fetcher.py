@@ -118,16 +118,20 @@ class ContextFetcher:
     def make_trade_log_filter(
         self, *, start_utc: datetime.datetime, end_utc: datetime.datetime
     ) -> Callable[[str], bool]:
+        tz = load_profile_timezone()
+
         def _f(raw: str) -> bool:
             if not self.is_trade_log_entry(raw):
                 return False
             meta = self.parse_frontmatter(raw)
             if not meta:
                 return False
-            created_utc = self._parse_created_time_utc(meta)
-            if not created_utc:
+            trade_utc = self._parse_trade_date_utc(meta, tz)
+            if not trade_utc:
+                trade_utc = self._parse_created_time_utc(meta)
+            if not trade_utc:
                 return False
-            return start_utc <= created_utc < end_utc
+            return start_utc <= trade_utc < end_utc
 
         return _f
 
@@ -199,7 +203,11 @@ class ContextFetcher:
         frontmatter, body = parse_frontmatter(raw or "")
         if not frontmatter:
             return None
-        created_utc = self._parse_created_time_utc(frontmatter)
+        created_utc = None
+        if self.is_trade_log_entry(raw or ""):
+            created_utc = self._parse_trade_date_utc(frontmatter, tz)
+        if not created_utc:
+            created_utc = self._parse_created_time_utc(frontmatter)
         if not created_utc:
             return None
         title = self._get_title(frontmatter, Path(path))
@@ -235,6 +243,47 @@ class ContextFetcher:
 
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+
+    @staticmethod
+    def _parse_trade_date_utc(frontmatter: dict, tz: ZoneInfo) -> datetime.datetime | None:
+        for k in ("date", "trade_date", "transaction_date", "captured_at", "capturedat"):
+            value = frontmatter.get(k)
+            if value:
+                break
+        else:
+            return None
+
+        if isinstance(value, datetime.datetime):
+            dt = value
+        elif isinstance(value, datetime.date):
+            dt = datetime.datetime(value.year, value.month, value.day)
+        elif isinstance(value, str):
+            s = value.strip()
+            if not s:
+                return None
+            if len(s) == 10 and s[4] == "-" and s[7] == "-":
+                try:
+                    d = datetime.date.fromisoformat(s)
+                except ValueError:
+                    return None
+                dt = datetime.datetime(d.year, d.month, d.day)
+            else:
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                try:
+                    dt = datetime.datetime.fromisoformat(s)
+                except ValueError:
+                    try:
+                        d = datetime.date.fromisoformat(s[:10])
+                    except ValueError:
+                        return None
+                    dt = datetime.datetime(d.year, d.month, d.day)
+        else:
+            return None
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=tz)
         return dt.astimezone(datetime.timezone.utc)
 
     @staticmethod

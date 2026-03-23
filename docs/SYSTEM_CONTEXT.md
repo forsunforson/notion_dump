@@ -100,10 +100,11 @@ status: "Done"
 
 ## 3. 灵魂拷问 (Socratic Questions)
 ```
-对于 `weekly/monthly`，若在过去 7 天内检测到交易快照日志（正文包含 `Trade Snapshot Log`），会在报告末尾追加：
+对于 `weekly/monthly`，若在过去 7 天内检测到交易记录（Frontmatter 中 `action ∈ {BUY, SELL}`），会在报告末尾追加：
 ```markdown
 ## 4. 交易复盘 (Trade Log Analysis)
 ```
+交易记录的时间筛选优先使用 Frontmatter 的 `date/trade_date/transaction_date`（对应 Notion properties 的 date 字段），缺失时回退到 `created_time`。
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)
