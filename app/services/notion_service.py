@@ -35,7 +35,6 @@ class NotionService:
             max_workers=int((os.getenv("NOTION_ASYNC_MAX_WORKERS") or "2").strip() or 2),
             thread_name_prefix="notion-chatlog",
         )
-        self._trade_beta_cache: dict[str, str] = {}
     
     def _paginate(self, method, **kwargs) -> List[Dict[str, Any]]:
         """
@@ -511,16 +510,7 @@ class NotionService:
         if (os.getenv("CHRONOFOLD_DISABLE_YFINANCE") or "").strip() == "1":
             return None
         symbol = "3067.HK"
-        date_key = now_local.date().strftime("%Y-%m-%d")
-        hour_key = now_local.strftime("%H")
-        bucket = (int(now_local.strftime("%M")) // 15) * 15
-        key = f"{date_key}-{hour_key}-{bucket:02d}"
-        cached = self._trade_beta_cache.get(key)
-        if cached:
-            return cached
         pct = self.finance_service.pct_change_vs_prev_close(symbol, tz_name="Asia/Hong_Kong")
-        if pct is None:
-            pct = self.finance_service.daily_pct_change(symbol, period="10d", interval="1d")
         if pct is None:
             return None
 
@@ -531,7 +521,6 @@ class NotionService:
         else:
             tag = "平盘"
         line = f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
-        self._trade_beta_cache[key] = line
         return line
 
     @staticmethod

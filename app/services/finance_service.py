@@ -37,7 +37,6 @@ def _to_decimal(v: Any) -> Decimal | None:
 class FinanceService:
     def __init__(self, *, data_source: str | None = None):
         self.data_source = (data_source or os.getenv("FINANCE_DATA_SOURCE") or "yfinance").strip().lower()
-        self._beta_cache: dict[str, str] = {}
 
     def is_available(self) -> bool:
         if (os.getenv("CHRONOFOLD_DISABLE_YFINANCE") or "").strip() == "1":
@@ -164,86 +163,21 @@ class FinanceService:
         except Exception:
             tz = ZoneInfo("Asia/Hong_Kong")
 
+        sym = symbol.strip()
         try:
-            obj = yf.Ticker(symbol.strip())
+            obj = yf.Ticker(sym)
         except Exception:
             return None
 
-        last = None
-        try:
-            h = obj.history(period="1d", interval="1m")
-            if h is not None and not getattr(h, "empty", True):
-                s = h.get("Close")
-                if s is not None:
-                    s = s.dropna()
-                    if not getattr(s, "empty", True):
-                        last = float(s.iloc[-1])
-        except Exception:
-            last = None
+        last = self._realtime_last_price_float(obj)
+        prev = self._prev_trading_close_float(obj, tz)
 
-        if last is None or last <= 0:
-            return self.daily_pct_change(symbol.strip(), period="10d", interval="1d")
-
-        prev = None
-        try:
-            fi = getattr(obj, "fast_info", None)
-            if fi:
-                p = fi.get("previous_close")
-                if p is not None:
-                    prev = float(p)
-        except Exception:
-            prev = None
-
-        if prev is None or prev <= 0:
-            try:
-                today = datetime.datetime.now(tz).date()
-                h1d = obj.history(period="10d", interval="1d")
-                if h1d is not None and not getattr(h1d, "empty", True):
-                    s = h1d.get("Close")
-                    if s is not None:
-                        s = s.dropna()
-                        if not getattr(s, "empty", True):
-                            items: list[tuple[datetime.date, float]] = []
-                            for idx, v in s.items():
-                                d = None
-                                try:
-                                    if getattr(idx, "tzinfo", None) is not None:
-                                        d = idx.tz_convert(tz).date()
-                                    else:
-                                        d = idx.date()
-                                except Exception:
-                                    try:
-                                        d = datetime.date.fromisoformat(str(idx)[:10])
-                                    except Exception:
-                                        d = None
-                                if d is None:
-                                    continue
-                                try:
-                                    fv = float(v)
-                                except Exception:
-                                    continue
-                                items.append((d, fv))
-                            items.sort(key=lambda x: x[0])
-                            prev_items = [x for x in items if x[0] < today and x[1] > 0]
-                            if prev_items:
-                                prev = prev_items[-1][1]
-            except Exception:
-                prev = None
-
-        if prev is None or prev <= 0:
-            return self.daily_pct_change(symbol.strip(), period="10d", interval="1d")
-
-        try:
-            return (last / prev) - 1.0
-        except Exception:
+        if last is None or last <= 0 or prev is None or prev <= 0:
             return None
+
+        return (last / prev) - 1.0
 
     def hstech_beta_line(self, date_local, *, symbol: str = "3067.HK") -> str | None:
-        key = date_local.strftime("%Y-%m-%d")
-        cached = self._beta_cache.get(key)
-        if cached:
-            return cached
-
         pct = self.daily_pct_change(symbol, period="10d", interval="1d")
         if pct is None:
             return None
@@ -255,9 +189,7 @@ class FinanceService:
         else:
             tag = "平盘"
 
-        line = f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
-        self._beta_cache[key] = line
-        return line
+        return f"大盘水位 (Beta)： 3067.HK (恒生科技 ETF) 当日表现 {tag} ({pct:+.2%})"
 
     def last_price(self, ticker: str) -> Decimal | None:
         t = (ticker or "").strip()
@@ -301,6 +233,67 @@ class FinanceService:
         except Exception:
             return None
         return None
+
+    @staticmethod
+    def _realtime_last_price_float(obj: Any) -> float | None:
+        try:
+            h = obj.history(period="1d", interval="1m")
+            if h is None or getattr(h, "empty", True):
+                return None
+            s = h.get("Close")
+            if s is None:
+                return None
+            s = s.dropna()
+            if getattr(s, "empty", True):
+                return None
+            v = float(s.iloc[-1])
+            return v if v > 0 else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _prev_trading_close_float(obj: Any, tz: ZoneInfo) -> float | None:
+        try:
+            today = datetime.datetime.now(tz).date()
+            h = obj.history(period="14d", interval="1d")
+            if h is None or getattr(h, "empty", True):
+                return None
+            s = h.get("Close")
+            if s is None:
+                return None
+            s = s.dropna()
+            if getattr(s, "empty", True):
+                return None
+
+            items: list[tuple[datetime.date, float]] = []
+            for idx, v in s.items():
+                d = None
+                try:
+                    if getattr(idx, "tzinfo", None) is not None:
+                        d = idx.tz_convert(tz).date()
+                    else:
+                        d = idx.date()
+                except Exception:
+                    try:
+                        d = datetime.date.fromisoformat(str(idx)[:10])
+                    except Exception:
+                        d = None
+                if d is None:
+                    continue
+                try:
+                    fv = float(v)
+                except Exception:
+                    continue
+                if fv > 0:
+                    items.append((d, fv))
+
+            items.sort(key=lambda x: x[0])
+            prev_items = [x for x in items if x[0] < today]
+            if not prev_items:
+                return None
+            return prev_items[-1][1]
+        except Exception:
+            return None
 
     def _extract_close_series(self, df: Any, symbol: str) -> Any | None:
         try:
