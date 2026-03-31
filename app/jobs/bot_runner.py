@@ -2,9 +2,11 @@ import os
 import logging
 import asyncio
 import datetime
+import time
 from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from app.services.llm_service import LLMService
 from app.services.chat_log_service import ChatLogService
 from app.services.prompt_manager import PromptManager
@@ -192,9 +194,38 @@ class TelegramBotRunner:
             raise
 
     def start_polling(self):
-        app = ApplicationBuilder().token(self.token).build()
+        backoff_s = 1
+        max_backoff_s = 60
+        while True:
+            try:
+                app = (
+                    ApplicationBuilder()
+                    .token(self.token)
+                    .connect_timeout(15)
+                    .read_timeout(45)
+                    .write_timeout(45)
+                    .pool_timeout(30)
+                    .get_updates_connect_timeout(15)
+                    .get_updates_read_timeout(90)
+                    .get_updates_write_timeout(45)
+                    .get_updates_pool_timeout(30)
+                    .build()
+                )
 
-        app.add_handler(MessageHandler(filters.TEXT, self.handle_message))
-        
-        logger.info("Starting Telegram Bot Polling...")
-        app.run_polling()
+                app.add_handler(MessageHandler(filters.TEXT, self.handle_message))
+
+                logger.info("Starting Telegram Bot Polling...")
+                app.run_polling()
+                backoff_s = 1
+            except RetryAfter as e:
+                sleep_s = max(1, int(getattr(e, "retry_after", 1))) + 1
+                logger.warning(f"Telegram rate-limited. Sleeping {sleep_s}s before retry.")
+                time.sleep(sleep_s)
+                continue
+            except (NetworkError, TimedOut) as e:
+                logger.warning(f"Telegram polling network error: {e}. Retrying in {backoff_s}s.")
+                time.sleep(backoff_s)
+                backoff_s = min(max_backoff_s, backoff_s * 2)
+                continue
+            except (KeyboardInterrupt, SystemExit):
+                raise
