@@ -151,7 +151,7 @@ class PeriodicReviewJob:
             trade_messages = self.prompt_manager.build_trade_analysis_prompt(
                 profile=profile_text,
                 trade_logs=trade_logs_text,
-                as_of_date=today_local.isoformat(),
+                as_of_date=end_date.isoformat(),
                 timezone=self.tz.key,
                 net_worth_cny=net_worth_cny,
             )
