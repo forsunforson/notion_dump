@@ -49,10 +49,9 @@ class PeriodicReviewJob:
         trade_end_date: datetime.date | None = None
         trade_start_utc: datetime.datetime | None = None
         trade_end_utc: datetime.datetime | None = None
-        today_local = datetime.datetime.now(self.tz).date()
         if include_trade_analysis:
-            trade_end_date = today_local
-            trade_start_date = today_local - datetime.timedelta(days=6)
+            trade_end_date = end_date
+            trade_start_date = end_date - datetime.timedelta(days=6)
             trade_start_utc, trade_end_utc = self._local_date_range_to_utc(trade_start_date, trade_end_date)
 
         cf = ContextFetcher()
@@ -226,6 +225,11 @@ class PeriodicReviewJob:
     ) -> tuple[datetime.date, datetime.date]:
         today_local = datetime.datetime.now(self.tz).date()
 
+        if start_date is not None and end_date is not None:
+            if start_date > end_date:
+                raise ValueError("start_date must be <= end_date")
+            return start_date, end_date
+
         if self.review_type == "daily":
             d = today_local - datetime.timedelta(days=1)
             return d, d
@@ -241,11 +245,7 @@ class PeriodicReviewJob:
             first_day_prev_month = last_day_prev_month.replace(day=1)
             return first_day_prev_month, last_day_prev_month
 
-        if start_date is None or end_date is None:
-            raise ValueError("custom review_type requires start_date and end_date")
-        if start_date > end_date:
-            raise ValueError("start_date must be <= end_date")
-        return start_date, end_date
+        raise ValueError("custom review_type requires start_date and end_date")
 
     def _list_markdown_files(self) -> list[Path]:
         if not OUTPUT_DIR.exists():

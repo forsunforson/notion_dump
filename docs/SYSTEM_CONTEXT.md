@@ -15,6 +15,8 @@
     - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
         - **动态画像演进 (Profile Evolution)**: 通过 `update_profile_skill.update_profile_attribute` 修改 `config/profile.yaml` 的可演进字段，并将每次变更追加写入 `notion_output/profile_changelog.jsonl` 作为审计与认知演化日志。
+        - **上下文拉取**: 通过 `context_collect_skill.collect_markdown_context` 按时间范围与过滤器收集本地 Markdown（如日记/交易/Chatlog），用于后续分析与复盘。
+        - **周/月回顾生成**: 通过 `periodic_review_skill.generate_weekly_review / generate_monthly_review` 生成本周/本月（默认截至今天）或指定周期的回顾报告，并落盘到 `_reports/`。
 
 ## 2. 核心模块拓扑 (Module Topology)
 
@@ -40,6 +42,8 @@
 -   **`update_profile_skill.py`**: Profile 动态更新技能。提供 `update_profile_attribute(yaml_path, new_value, reason, category)`：使用点语法定位并更新画像字段；对静态锁定字段强制拒绝；写回后追加审计日志到 `profile_changelog.jsonl`。
 -   **`update_manual_asset_skill.py`**: 手动资产更新技能。提供 `update_manual_asset_value(asset_name, target_key, new_value, reason)`：在 `balance_sheet_structure` 中递归按 `name` 定位目标资产，更新 `value/price` 等手动维护字段；使用 ruamel.yaml 保留原始 YAML 格式；成功后追加审计日志到 `profile_changelog.jsonl`。
 -   **`update_portfolio_skill.py`**: 投资交易记录与资产负债表更新技能。提供 `log_portfolio_transaction(ticker, action, price, quantity, cash_impact, currency, notes)`：先写入 Notion Portfolio Ledger，再以**双分录**方式原子更新 `config/profile.yaml` 中的 `stock_count` 与 `checking account` 余额（BUY 扣现金加股票；SELL 加现金减股票；DIVIDEND 只加现金）；随后为该交易 Page 追加一段“交易快照”正文（来自 `config/templates/trade_snapshot_log.md`，并自动填充部分字段，如成交均价、仓位变动股数、恒生科技指数当日表现等）。成功后向 `profile_changelog.jsonl` 追加审计事件（股票与现金可能各一条）。
+-   **`context_collect_skill.py`**: 上下文收集技能。提供 `collect_markdown_context` 函数，支持按本地日期范围与过滤器类型（daily_entry/trade_log/chatlog/contains/regex 等）聚合本地 Markdown 记录，供 Bot/LLM 做证据约束分析。
+-   **`periodic_review_skill.py`**: 周/月回顾生成技能。提供 `generate_weekly_review / generate_monthly_review`，支持 period=current/previous、month=YYYY-MM 或 start_date/end_date 指定时间范围，生成报告并落盘到 `_reports/`。
 
 ### 基础服务 (Infrastructure Services - `app/services/`)
 -   **`notion_service.py`**: Notion API 客户端。封装分页 (Pagination)、搜索 (Search)、块获取 (Get Blocks) 及数据库解析逻辑；并提供 Inbox 写入能力（`append_to_inbox`），通过 `POST /v1/pages` 在 `NOTION_INBOX_DATABASE_ID` 下创建 Page，将文本作为段落 blocks 写入。

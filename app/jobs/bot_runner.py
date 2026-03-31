@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 import datetime
 from zoneinfo import ZoneInfo
 from telegram import Update
@@ -13,6 +14,13 @@ from app.skills.update_profile_skill import UPDATE_PROFILE_SKILL_SCHEMA, update_
 from app.skills.update_manual_asset_skill import UPDATE_MANUAL_ASSET_SCHEMA, update_manual_asset_value
 from app.skills.update_portfolio_skill import LOG_PORTFOLIO_TRANSACTION_SCHEMA, log_portfolio_transaction
 from app.skills.context_collect_skill import COLLECT_MARKDOWN_CONTEXT_SCHEMA, collect_markdown_context
+from app.skills.periodic_review_skill import (
+    GENERATE_WEEKLY_REVIEW_SCHEMA,
+    generate_weekly_review,
+    GENERATE_MONTHLY_REVIEW_SCHEMA,
+    generate_monthly_review,
+)
+from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +96,8 @@ class TelegramBotRunner:
                 "update_manual_asset_value": 0,
                 "log_portfolio_transaction": 0,
                 "collect_markdown_context": 0,
+                "generate_weekly_review": 0,
+                "generate_monthly_review": 0,
             }
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
@@ -110,12 +120,22 @@ class TelegramBotRunner:
                 executed["collect_markdown_context"] += 1
                 return collect_markdown_context(**kwargs)
 
+            def wrapped_generate_weekly_review(**kwargs):
+                executed["generate_weekly_review"] += 1
+                return generate_weekly_review(**kwargs)
+
+            def wrapped_generate_monthly_review(**kwargs):
+                executed["generate_monthly_review"] += 1
+                return generate_monthly_review(**kwargs)
+
             tools = [
                 METRICS_SKILL_SCHEMA,
                 UPDATE_PROFILE_SKILL_SCHEMA,
                 UPDATE_MANUAL_ASSET_SCHEMA,
                 LOG_PORTFOLIO_TRANSACTION_SCHEMA,
                 COLLECT_MARKDOWN_CONTEXT_SCHEMA,
+                GENERATE_WEEKLY_REVIEW_SCHEMA,
+                GENERATE_MONTHLY_REVIEW_SCHEMA,
             ]
             tool_map = {
                 "upsert_daily_metric": wrapped_upsert_daily_metric,
@@ -123,6 +143,8 @@ class TelegramBotRunner:
                 "update_manual_asset_value": wrapped_update_manual_asset_value,
                 "log_portfolio_transaction": wrapped_log_portfolio_transaction,
                 "collect_markdown_context": wrapped_collect_markdown_context,
+                "generate_weekly_review": wrapped_generate_weekly_review,
+                "generate_monthly_review": wrapped_generate_monthly_review,
             }
 
             chat_id = update.effective_chat.id
@@ -142,7 +164,10 @@ class TelegramBotRunner:
 
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
-            new_history = [*history, {"role": "user", "content": user_text}, {"role": "assistant", "content": reply_text or ""}]
+            stored_reply = reply_text or ""
+            if len(stored_reply) > 1200:
+                stored_reply = stored_reply[:1200].rstrip() + "\n(…截断)"
+            new_history = [*history, {"role": "user", "content": user_text}, {"role": "assistant", "content": stored_reply}]
             self._history_by_chat[chat_id] = new_history[-20:]
 
             # Send reply
@@ -150,7 +175,13 @@ class TelegramBotRunner:
             if not reply_text:
                 logger.warning("LLM returned empty response")
             self.chat_log.log_message(role="Bot", content=final_reply)
-            await update.message.reply_text(final_reply)
+            parts = split_text_smart(final_reply, max_chars=3500)
+            if not parts:
+                parts = ["（空响应）"]
+            for i, part in enumerate(parts):
+                await update.message.reply_text(part)
+                if i < len(parts) - 1:
+                    await asyncio.sleep(1)
             logger.info(f"Sent reply to {user_name}")
 
         except Exception:
@@ -162,9 +193,8 @@ class TelegramBotRunner:
 
     def start_polling(self):
         app = ApplicationBuilder().token(self.token).build()
-        
-        # Add handler for text messages that are not commands
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+
+        app.add_handler(MessageHandler(filters.TEXT, self.handle_message))
         
         logger.info("Starting Telegram Bot Polling...")
         app.run_polling()
