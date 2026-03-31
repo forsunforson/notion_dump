@@ -232,6 +232,13 @@ class LLMService:
                     True,
                 )
             except Exception as e:
+                try:
+                    arg_keys = sorted(list(function_args.keys())) if isinstance(function_args, dict) else []
+                except Exception:
+                    arg_keys = []
+                logger.exception(
+                    f"Tool execution failed: {function_name} (tool_call_id={getattr(tool_call, 'id', None)}), arg_keys={arg_keys}"
+                )
                 return (
                     {
                         "tool_call_id": tool_call.id,
