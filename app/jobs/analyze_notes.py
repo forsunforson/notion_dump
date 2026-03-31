@@ -6,7 +6,7 @@ from app.services.prompt_manager import PromptManager
 from app.services.llm_service import LLMService
 from app.services.context_fetcher import ContextFetcher
 from app.core.paths import output_dir
-from app.utils.jsonl_kv_store import upsert_jsonl
+from app.utils.jsonl_event_store import append_jsonl
 
 
 class AnalyzeNotesJob:
@@ -100,7 +100,7 @@ class AnalyzeNotesJob:
         
         metrics_path = output_dir() / "metrics.jsonl"
         try:
-            upsert_jsonl(metrics_path, metrics, key_fields=("source", "date"))
+            append_jsonl(metrics_path, metrics)
             print(f"Metrics saved to: {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics: {e}")

@@ -11,6 +11,7 @@ from app.core.paths import output_dir as _output_dir, reports_dir as _reports_di
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.services.context_fetcher import ContextFetcher
+from app.utils.jsonl_event_store import read_jsonl_grouped_by_date
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -313,35 +314,13 @@ class PeriodicReviewJob:
         if not metrics_path.exists():
             return []
 
-        rows = []
         try:
-            with open(metrics_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = (line or "").strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    d = self._extract_metric_date(obj)
-                    if d is None:
-                        continue
-                    if start_date <= d <= end_date:
-                        rows.append(obj)
+            return read_jsonl_grouped_by_date(
+                metrics_path, start_date=start_date, end_date=end_date, tz=self.tz
+            )
         except Exception as e:
             logger.error(f"Error reading metrics file {metrics_path}: {e}")
             return []
-
-        def sort_key(o: dict):
-            date_s = o.get("date") or ""
-            src = o.get("source") or ""
-            ts = o.get("timestamp") or ""
-            return (date_s, src, ts)
-
-        rows.sort(key=sort_key)
-        return rows
 
     def _extract_metric_date(self, metric: dict) -> datetime.date | None:
         if not isinstance(metric, dict):

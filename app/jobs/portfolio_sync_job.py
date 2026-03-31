@@ -9,7 +9,7 @@ import yaml
 
 from app.core.paths import config_dir, output_dir
 from app.services.finance_service import FinanceService
-from app.utils.jsonl_kv_store import upsert_jsonl
+from app.utils.jsonl_event_store import append_jsonl
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -128,9 +128,9 @@ class PortfolioSyncJob:
         }
 
         try:
-            upsert_jsonl(self.metrics_path, record, key_fn=self._metrics_key)
+            append_jsonl(self.metrics_path, record)
         except Exception:
-            logger.exception("Failed to upsert metrics.jsonl: %s", self.metrics_path)
+            logger.exception("Failed to append metrics.jsonl: %s", self.metrics_path)
             return 1
 
         logger.info(
@@ -198,16 +198,6 @@ class PortfolioSyncJob:
     def _fx_ticker(self, currency: str) -> str:
         c = (currency or "").strip().upper()
         return f"{c}CNY=X"
-
-    def _metrics_key(self, item: dict) -> str | None:
-        source = item.get("source")
-        date = item.get("date")
-        if not isinstance(source, str) or not source.strip():
-            return None
-        if not isinstance(date, str) or not date.strip():
-            return None
-        return f"{source.strip()}::{date.strip()}"
-
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

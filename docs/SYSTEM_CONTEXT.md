@@ -67,7 +67,7 @@
 -   **`timezone_utils.py`**: 时区管理工具。提供 `load_profile_timezone` 函数，统一从 `profile.yaml` 加载用户时区配置。
 -   **`frontmatter.py`**: Frontmatter 解析工具。提供 `parse_frontmatter` 函数，统一解析 Markdown YAML 头。
 -   **`text_chunking.py`**: 文本切分工具。提供 `split_text_by_length` (Notion) 和 `split_text_smart` (Telegram) 两种切分策略。
--   **`jsonl_kv_store.py`**: JSONL 存储工具。提供 `upsert_jsonl` 函数，支持基于键值的增量写入。
+-   **`jsonl_event_store.py`**: JSONL 事件存储工具。提供 `append_jsonl`（append-only 追加写入）与 `read_jsonl_grouped_by_date`（按 date 聚合合并读取，可传入时间范围）。
 
 ## 3. 核心数据契约 (Data Schemas)
 

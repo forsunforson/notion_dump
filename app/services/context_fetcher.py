@@ -10,6 +10,7 @@ import yaml
 
 from app.core.paths import project_root, config_dir, output_dir, reports_dir
 from app.utils.frontmatter import parse_frontmatter, parse_frontmatter_meta
+from app.utils.jsonl_event_store import read_jsonl_grouped_by_date
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -367,22 +368,9 @@ class ContextFetcher:
             return []
 
         try:
-            lines = []
-            with open(self.metrics_file, "r", encoding="utf-8") as f:
-                all_lines = f.readlines()
-                lines = all_lines[-count:] if len(all_lines) >= count else all_lines
-
-            metrics = []
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    metrics.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-            return metrics
+            tz = load_profile_timezone(self.profile_file)
+            items = read_jsonl_grouped_by_date(self.metrics_file, tz=tz)
+            return items[-count:] if len(items) >= count else items
         except Exception as e:
             logger.error(f"Error reading metrics file: {e}")
             return []
