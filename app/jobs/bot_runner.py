@@ -26,6 +26,23 @@ from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)
 
+def _prefer_review_tool_output(
+    reply_text: str | None,
+    *,
+    executed: dict[str, int],
+    tool_outputs: dict[str, str],
+) -> str:
+    final_reply = reply_text or "抱歉，我没有听清楚，请再说一遍。"
+    if executed.get("generate_monthly_review", 0) > 0:
+        out = (tool_outputs.get("generate_monthly_review") or "").strip()
+        if out:
+            return out
+    if executed.get("generate_weekly_review", 0) > 0:
+        out = (tool_outputs.get("generate_weekly_review") or "").strip()
+        if out:
+            return out
+    return final_reply
+
 class TelegramBotRunner:
     def __init__(self):
         self.token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -101,6 +118,7 @@ class TelegramBotRunner:
                 "generate_weekly_review": 0,
                 "generate_monthly_review": 0,
             }
+            tool_outputs: dict[str, str] = {}
 
             def wrapped_upsert_daily_metric(**kwargs) -> str:
                 executed["upsert_daily_metric"] += 1
@@ -122,13 +140,17 @@ class TelegramBotRunner:
                 executed["collect_markdown_context"] += 1
                 return collect_markdown_context(**kwargs)
 
-            def wrapped_generate_weekly_review(**kwargs):
+            async def wrapped_generate_weekly_review(**kwargs):
                 executed["generate_weekly_review"] += 1
-                return generate_weekly_review(**kwargs)
+                out = await generate_weekly_review(**kwargs)
+                tool_outputs["generate_weekly_review"] = str(out or "")
+                return out
 
-            def wrapped_generate_monthly_review(**kwargs):
+            async def wrapped_generate_monthly_review(**kwargs):
                 executed["generate_monthly_review"] += 1
-                return generate_monthly_review(**kwargs)
+                out = await generate_monthly_review(**kwargs)
+                tool_outputs["generate_monthly_review"] = str(out or "")
+                return out
 
             tools = [
                 METRICS_SKILL_SCHEMA,
@@ -166,14 +188,15 @@ class TelegramBotRunner:
 
             reply_text, _ = await self.llm.ask_with_tools_messages(messages, tools, tool_map)
 
-            stored_reply = reply_text or ""
+            final_reply = _prefer_review_tool_output(reply_text, executed=executed, tool_outputs=tool_outputs)
+
+            stored_reply = final_reply
             if len(stored_reply) > 1200:
                 stored_reply = stored_reply[:1200].rstrip() + "\n(…截断)"
             new_history = [*history, {"role": "user", "content": user_text}, {"role": "assistant", "content": stored_reply}]
             self._history_by_chat[chat_id] = new_history[-20:]
 
             # Send reply
-            final_reply = reply_text or "抱歉，我没有听清楚，请再说一遍。"
             if not reply_text:
                 logger.warning("LLM returned empty response")
             self.chat_log.log_message(role="Bot", content=final_reply)
