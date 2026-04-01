@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -9,6 +8,7 @@ from ruamel.yaml.comments import CommentedMap
 
 from app.core.paths import output_dir
 from app.core.paths import project_root as _project_root
+from app.utils.jsonl_event_store import append_jsonl_record
 from app.utils.plain import to_plain
 
 
@@ -177,8 +177,12 @@ def update_manual_asset_value(
             "reason": reason_str,
             "source": "update_manual_asset_skill",
         }
-        with open(changelog_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        append_jsonl_record(
+            changelog_path,
+            event,
+            required_fields=("timestamp", "yaml_path", "reason", "source"),
+            drop_null=False,
+        )
 
         return f"OK: updated {found_path}.{target_key}"
     except Exception as e:
@@ -215,4 +219,3 @@ UPDATE_MANUAL_ASSET_SCHEMA = {
         },
     },
 }
-

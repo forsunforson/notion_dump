@@ -6,8 +6,8 @@
 
 ### 核心数据流 (Core Data Flow)
 1.  **Ingest (摄取)**: `SyncNotionJob` 定时从 Notion API 拉取变更页面（Incremental Sync），通过 `NotionToMarkdown` 转换为带有 YAML Frontmatter 的标准 Markdown 文件，存储于 `notion_output/`。
-2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并 Upsert 写入 `notion_output/metrics.jsonl`。该阶段不生成主观总结/简报。
-3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `FinanceService` 拉取价格与汇率（默认数据源为 `yfinance`），计算当日权益总市值（CNY），并 Upsert 写入 `notion_output/metrics.jsonl`，为“投资偏离警告”提供硬数据底座。
+2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并以 append-only 方式追加写入 `notion_output/metrics.jsonl`（不去重）。读取侧再按 `date` 聚合合并。
+3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `FinanceService` 拉取价格与汇率（默认数据源为 `yfinance`），计算当日权益总市值（CNY），并以 append-only 方式追加写入 `notion_output/metrics.jsonl`（不去重）。读取侧再按 `date` 聚合合并，为“投资偏离警告”提供硬数据底座。
 4.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
 5.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
 6.  **Interact (交互)**:
@@ -28,8 +28,8 @@
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
 -   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
--   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 Upsert 到 `notion_output/metrics.jsonl`。
--   **`net_worth_sync_job.py`**: 净资产同步作业。读取画像中的 `balance_sheet_structure`（静态资产/现金/股票/期权/负债），拉取行情与汇率，生成当日 `net_worth_cny / total_assets_cny / total_liabilities_cny / liquid_assets_cny` 并 Upsert 写入 `metrics.jsonl`（幂等覆盖当日记录）。
+-   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 append-only 追加写入 `notion_output/metrics.jsonl`（不去重）。
+-   **`net_worth_sync_job.py`**: 净资产同步作业。读取画像中的 `balance_sheet_structure`（静态资产/现金/股票/期权/负债），拉取行情与汇率，生成当日 `net_worth_cny / total_assets_cny / total_liabilities_cny / liquid_assets_cny` 并 append-only 追加写入 `metrics.jsonl`（不去重）。
 -   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
 -   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
 -   **`routines.py`**: 轻量分发层。执行 `morning/weekly` 时调用统一回顾引擎生成 Markdown，并通过 `TelegramService` 推送消息。
@@ -112,7 +112,7 @@ status: "Done"
 交易记录的时间筛选优先使用 Frontmatter 的 `date/trade_date/transaction_date`（对应 Notion properties 的 date 字段），缺失时回退到 `created_time`。
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
-由 AI 从日记或记录中提取，用于长期趋势分析。支持基于 `source` 或 `date` 的 Upsert。主键 (Primary Key): source (兜底策略为 date)
+由 AI 从日记或记录中提取，用于长期趋势分析。写入层为 append-only（每条记录必含 `date/source/timestamp`，不去重，且不写入 null 字段）；读取层按 `date` 分组聚合，同名字段按 `timestamp` 新的覆盖旧的。
 ```json
 {
   "date": "2026-02-24",            // 业务发生日期 (Local Time)

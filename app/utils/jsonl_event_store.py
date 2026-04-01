@@ -7,6 +7,43 @@ from zoneinfo import ZoneInfo
 from app.utils.timezone_utils import load_profile_timezone
 
 
+def append_jsonl_record(
+    path: Path,
+    item: dict,
+    *,
+    required_fields: tuple[str, ...] = (),
+    drop_null: bool = False,
+) -> None:
+    if not isinstance(item, dict):
+        raise ValueError("item must be a dict")
+
+    for f in required_fields:
+        v = item.get(f)
+        if f in {"date", "source", "timestamp"}:
+            if not (isinstance(v, str) and v.strip()):
+                raise ValueError(f"item missing required field: {f}")
+        else:
+            if v is None:
+                raise ValueError(f"item missing required field: {f}")
+
+    cleaned: dict[str, Any] = {}
+    for k, v in item.items():
+        if drop_null and v is None:
+            continue
+        cleaned[k] = v
+
+    if "date" in required_fields and isinstance(cleaned.get("date"), str):
+        cleaned["date"] = str(cleaned["date"]).strip()[:10]
+    if "source" in required_fields and isinstance(cleaned.get("source"), str):
+        cleaned["source"] = str(cleaned["source"]).strip()
+    if "timestamp" in required_fields and isinstance(cleaned.get("timestamp"), str):
+        cleaned["timestamp"] = str(cleaned["timestamp"]).strip()
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(cleaned, ensure_ascii=False) + "\n")
+
+
 def append_jsonl(path: Path, item: dict) -> None:
     if not isinstance(item, dict):
         raise ValueError("item must be a dict")

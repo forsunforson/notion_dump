@@ -1,10 +1,10 @@
 import datetime
-import json
 import os
 from pathlib import Path
 from typing import Any, Literal
 
 from app.core.paths import project_root as _project_root, output_dir
+from app.utils.jsonl_event_store import append_jsonl_record
 from app.utils.plain import to_plain
 
 
@@ -203,8 +203,12 @@ def _write_changelog(
         "reason": reason,
         "source": "update_portfolio_skill",
     }
-    with open(changelog_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    append_jsonl_record(
+        changelog_path,
+        event,
+        required_fields=("timestamp", "yaml_path", "reason", "source"),
+        drop_null=False,
+    )
 
 
 def log_portfolio_transaction(

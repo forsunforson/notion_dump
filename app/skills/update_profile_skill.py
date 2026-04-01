@@ -8,6 +8,7 @@ import yaml
 
 from app.core.paths import project_root as _project_root, output_dir
 from app.utils.plain import to_plain
+from app.utils.jsonl_event_store import append_jsonl_record
 
 
 UpdateProfileCategory = Literal["update", "add"]
@@ -128,8 +129,12 @@ def update_profile_attribute(
             "reason": reason_str,
             "source": "Telegram Bot",
         }
-        with open(changelog_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        append_jsonl_record(
+            changelog_path,
+            event,
+            required_fields=("timestamp", "yaml_path", "reason", "source"),
+            drop_null=False,
+        )
  
         return f"OK: updated {target_path}"
     except Exception as e:
