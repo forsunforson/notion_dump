@@ -11,7 +11,7 @@ from app.core.paths import output_dir as _output_dir, reports_dir as _reports_di
 from app.services.llm_service import LLMService
 from app.services.prompt_manager import PromptManager
 from app.services.context_fetcher import ContextFetcher
-from app.utils.jsonl_event_store import read_jsonl_grouped_by_date
+from app.services.event_store import read_metrics_grouped_by_date
 from app.utils.timezone_utils import load_profile_timezone
 
 logger = logging.getLogger(__name__)
@@ -315,7 +315,7 @@ class PeriodicReviewJob:
             return []
 
         try:
-            return read_jsonl_grouped_by_date(
+            return read_metrics_grouped_by_date(
                 metrics_path, start_date=start_date, end_date=end_date, tz=self.tz
             )
         except Exception as e:

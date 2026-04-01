@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -7,8 +6,8 @@ from typing import Any, Literal
 import yaml
 
 from app.core.paths import project_root as _project_root, output_dir
+from app.services.event_store import write_profile_changelog_event
 from app.utils.plain import to_plain
-from app.utils.jsonl_event_store import append_jsonl_record
 
 
 UpdateProfileCategory = Literal["update", "add"]
@@ -129,12 +128,7 @@ def update_profile_attribute(
             "reason": reason_str,
             "source": "Telegram Bot",
         }
-        append_jsonl_record(
-            changelog_path,
-            event,
-            required_fields=("timestamp", "yaml_path", "reason", "source"),
-            drop_null=False,
-        )
+        write_profile_changelog_event(changelog_path, event)
  
         return f"OK: updated {target_path}"
     except Exception as e:

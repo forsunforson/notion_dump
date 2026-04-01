@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from app.core.paths import output_dir
-from app.utils.jsonl_event_store import append_jsonl
+from app.services.event_store import write_metrics_event
 
 def upsert_daily_metric(
     date: str,
@@ -68,7 +68,7 @@ def upsert_daily_metric(
         metrics_path = output_dir() / "metrics.jsonl"
         
         try:
-            append_jsonl(metrics_path, metrics)
+            write_metrics_event(metrics_path, metrics)
             return f"Successfully updated metrics for {date}."
         except Exception as e:
             return f"Error updating metrics: {str(e)}"

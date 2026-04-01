@@ -8,7 +8,7 @@ from ruamel.yaml.comments import CommentedMap
 
 from app.core.paths import output_dir
 from app.core.paths import project_root as _project_root
-from app.utils.jsonl_event_store import append_jsonl_record
+from app.services.event_store import write_profile_changelog_event
 from app.utils.plain import to_plain
 
 
@@ -177,12 +177,7 @@ def update_manual_asset_value(
             "reason": reason_str,
             "source": "update_manual_asset_skill",
         }
-        append_jsonl_record(
-            changelog_path,
-            event,
-            required_fields=("timestamp", "yaml_path", "reason", "source"),
-            drop_null=False,
-        )
+        write_profile_changelog_event(changelog_path, event)
 
         return f"OK: updated {found_path}.{target_key}"
     except Exception as e:

@@ -8,7 +8,7 @@ import yaml
  
 from app.core.paths import config_dir, output_dir
 from app.services.finance_service import FinanceService
-from app.utils.jsonl_event_store import append_jsonl
+from app.services.event_store import write_metrics_event
 from app.utils.timezone_utils import load_profile_timezone
  
 logger = logging.getLogger(__name__)
@@ -246,7 +246,7 @@ class NetWorthSyncJob:
         }
  
         try:
-            append_jsonl(self.metrics_path, record)
+            write_metrics_event(self.metrics_path, record)
         except Exception:
             logger.exception("Failed to append metrics.jsonl: %s", self.metrics_path)
             return 1
