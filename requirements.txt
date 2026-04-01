@@ -23,3 +23,9 @@ aiofiles
 aiohttp
 python-telegram-bot
 yfinance
+
+# Charting
+pydantic>=2.0
+matplotlib>=3.8
+seaborn>=0.13
+scipy>=1.10

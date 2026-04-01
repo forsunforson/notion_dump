@@ -1,4 +1,5 @@
 import os
+import io
 import logging
 import asyncio
 import aiohttp
@@ -71,3 +72,51 @@ class TelegramService:
             if i < len(parts) - 1:
                 await asyncio.sleep(1)
         return True
+
+    async def send_photo(self, photo_bytes: io.BytesIO, caption: str | None = None) -> bool:
+        if not self.is_configured:
+            logger.warning("Telegram not configured. Skipping photo send.")
+            return False
+
+        if caption and str(caption).strip():
+            self.chat_log.log_message(role="Bot", content=f"[Photo] {caption}")
+        else:
+            self.chat_log.log_message(role="Bot", content="[Photo]")
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        
+        data = aiohttp.FormData()
+        data.add_field("chat_id", str(self.chat_id))
+        
+        if caption:
+            data.add_field("caption", str(caption))
+            
+        photo_bytes.seek(0)
+        data.add_field(
+            "photo",
+            photo_bytes,
+            filename="chart.png",
+            content_type="image/png"
+        )
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=data, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result.get("ok"):
+                            logger.info("Telegram photo sent successfully")
+                            return True
+                        else:
+                            logger.error(f"Telegram API error (sendPhoto): {result.get('description')}")
+                            return False
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"Telegram HTTP error {response.status} (sendPhoto): {response_text}")
+                        return False
+        except aiohttp.ClientError as e:
+            logger.error(f"Telegram network error (sendPhoto): {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error sending Telegram photo: {e}")
+            return False
