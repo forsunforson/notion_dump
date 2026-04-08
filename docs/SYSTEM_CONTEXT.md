@@ -7,10 +7,11 @@
 ### 核心数据流 (Core Data Flow)
 1.  **Ingest (摄取)**: `SyncNotionJob` 定时从 Notion API 拉取变更页面（Incremental Sync），通过 `NotionToMarkdown` 转换为带有 YAML Frontmatter 的标准 Markdown 文件，存储于 `notion_output/`。
 2.  **Analyze (ETL 指标抽取)**: `AnalyzeNotesJob` 监听变更文件，仅对日记类文档进行客观指标抽取（`daily_metrics`），并以 append-only 方式追加写入 `notion_output/metrics.jsonl`（不去重）。读取侧再按 `date` 聚合合并。
-3.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `FinanceService` 拉取价格与汇率（默认数据源为 `yfinance`），计算当日权益总市值（CNY），并以 append-only 方式追加写入 `notion_output/metrics.jsonl`（不去重）。读取侧再按 `date` 聚合合并，为“投资偏离警告”提供硬数据底座。
-4.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
-5.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
-6.  **Interact (交互)**:
+3.  **Index (文档索引)**: `IndexGeneratorService` 监听真实正文变更的 Markdown 文件，为 `notion_output/*.md` 增量生成 `_reports/index.json` 索引；每个文件以文件名为 key，value 包含 `summary / tags / date`，供后续检索与导航使用。若仅 YAML Frontmatter 变化而正文未变，则不会触发索引更新。
+4.  **Portfolio Sync (投资组合客观指标)**: `PortfolioSyncJob` 读取 `config/profile.yaml` 中的静态持仓（ticker/currency/stock_count），通过 `FinanceService` 拉取价格与汇率（默认数据源为 `yfinance`），计算当日权益总市值（CNY），并以 append-only 方式追加写入 `notion_output/metrics.jsonl`（不去重）。读取侧再按 `date` 聚合合并，为“投资偏离警告”提供硬数据底座。
+5.  **Review (苏格拉底提问引擎 / The Guardian)**: `PeriodicReviewJob` 作为“终极意图守护者”，接管所有日/周/月度回顾的生成逻辑：在指定日期范围内读取日记 Markdown + 过滤 `metrics.jsonl` 区间数据，组装为 `Profile / Metrics / Raw Notes` 三块上下文，调用 LLM 输出**冷峻、极简、以提问为武器**的报告到 `_reports/`（禁止流水账总结与鸡汤建议）。
+6.  **Backup (备份)**: `run_task.sh` 在任务完成后，触发 Rclone 将核心数据（State, Config, Output, Reports）同步至云端存储 (Google Drive)。
+7.  **Interact (交互)**:
     - **主动推送**: `DailyRoutines` 基于 Crontab 定时触发，调用统一回顾引擎生成 `daily/weekly` 回顾 Markdown，并通过 Telegram 推送。
     - **被动响应**: `TelegramBotRunner` (Daemon) 监听用户消息，检索知识库上下文，并具备 **Tool Use (工具调用)** 能力：
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
@@ -27,7 +28,7 @@
 -   **`deploy/setup_rclone.sh`**: 一键安装与配置 Rclone。基于 `.env` 注入 `RCLONE_CONFIG_*` 变量，非交互验证 `chronofold_backup:` 远端连接，用于 CI/CD 与一键部署。
 
 ### 核心作业 (Core Jobs - `app/jobs/`)
--   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射。
+-   **`sync_notion.py`**: 处理 Notion 数据同步。维护 `.chronofold-state.json` 记录上次同步时间，支持递归下载 Page/Database，处理父子关系映射；增量同步时仅当 Markdown 正文发生变化才将文件视为“真实变更”，忽略仅 YAML Frontmatter 变化导致的假更新。
 -   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 append-only 追加写入 `notion_output/metrics.jsonl`（不去重）。
 -   **`net_worth_sync_job.py`**: 净资产同步作业。读取画像中的 `balance_sheet_structure`（静态资产/现金/股票/期权/负债），拉取行情与汇率，生成当日 `net_worth_cny / total_assets_cny / total_liabilities_cny / liquid_assets_cny` 并 append-only 追加写入 `metrics.jsonl`（不去重）。
 -   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
@@ -51,6 +52,7 @@
 -   **`chart_service.py`**: 数据可视化引擎。使用 `matplotlib` 和 `seaborn` 在内存中生成暗色主题的数据图表（雷达图、饼图、折线图、热力图），自动处理中文字体兼容，输出 PNG 内存字节流 (`io.BytesIO`) 供 Telegram 推送使用，不落盘。
 -   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
+-   **`index_generator.py`**: 文档索引生成服务。负责为 `notion_output/*.md` 生成并维护 `_reports/index.json`；优先使用 LLM 生成 `summary / tags`，失败时退回到基于 Frontmatter 与正文首段的规则兜底；`date` 字段优先读取 Frontmatter 中的 `last_edited_time/date/trade_date/transaction_date/created_time`。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送长文本与图片数据流 (Send Message / Send Photo)，并调用 `ChatLogService` 记录 Bot 发送的消息与图片行为。
 -   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划，以及交易复盘（以 `INVESTMENT_SOUL.md + Profile` 作为 system）；对外提供 `build_review_prompt(...)`、`build_trade_analysis_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中。
 -   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；并提供 Markdown 扫描与过滤收集能力（`collect_markdown_by_filters`），将筛选规则收敛为可组合的 filter functions。
@@ -110,6 +112,20 @@ status: "Done"
 ## 4. 交易复盘 (Trade Log Analysis)
 ```
 交易记录的时间筛选优先使用 Frontmatter 的 `date/trade_date/transaction_date`（对应 Notion properties 的 date 字段），缺失时回退到 `created_time`。
+
+### 文档索引 (`_reports/index.json`)
+由 `IndexGeneratorService` 维护的增量索引，key 为 `notion_output` 下 Markdown 文件名，value 为结构化摘要信息：
+```json
+{
+  "UUID.md": {
+    "summary": "一句话总结文档核心内容",
+    "tags": ["tag1", "tag2", "tag3"],
+    "date": "2026-04-08"
+  }
+}
+```
+- 仅对“正文真实变化”的文件更新索引；若只有 YAML Frontmatter 变化，不更新该文件索引项。
+- `summary/tags` 优先由 LLM 生成；失败时退回规则兜底，保证 sync 不因索引生成失败而中断。
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。写入层为 append-only（每条记录必含 `date/source/timestamp`，不去重，且不写入 null 字段）；读取层按 `date` 分组聚合，同名字段按 `timestamp` 新的覆盖旧的。

@@ -1,9 +1,9 @@
 import unittest
 from app.utils.plain import to_plain
-from app.utils.notion_meta import extract_title, get_page_meta
-from app.utils.text_chunking import split_text_smart, split_text_by_length
+from app.utils.notion_meta import extract_title
+from app.utils.text_chunking import split_text_smart
 from app.utils.notion_ids import normalize_uuid
-from app.utils.frontmatter import parse_frontmatter
+from app.utils.frontmatter import parse_frontmatter, is_change
 
 
 class TestRefactoredUtils(unittest.TestCase):
@@ -72,6 +72,16 @@ class TestRefactoredUtils(unittest.TestCase):
         fm, body = parse_frontmatter(content)
         self.assertEqual(fm.get("title"), "Test")
         self.assertEqual(body.strip(), "Body content")
+
+    def test_is_change_ignores_frontmatter_only_updates(self):
+        old_content = "---\ntitle: Old\nlast_edited_time: 2026-04-01T00:00:00Z\n---\n# Title\n\nBody"
+        new_content = "---\ntitle: New\nlast_edited_time: 2026-04-02T00:00:00Z\n---\n# Title\n\nBody"
+        self.assertFalse(is_change(old_content, new_content))
+
+    def test_is_change_detects_body_updates(self):
+        old_content = "---\ntitle: Test\n---\n# Title\n\nBody"
+        new_content = "---\ntitle: Test\n---\n# Title\n\nBody changed"
+        self.assertTrue(is_change(old_content, new_content))
 
 if __name__ == "__main__":
     unittest.main()

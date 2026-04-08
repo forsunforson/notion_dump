@@ -28,6 +28,11 @@ try:
 except Exception:
     ContextFetcher = None
 
+try:
+    from .index_generator import IndexGeneratorService
+except Exception:
+    IndexGeneratorService = None
+
 __all__ = []
 if LLMService is not None:
     __all__.append("LLMService")
@@ -41,3 +46,5 @@ if FinanceService is not None:
     __all__.append("FinanceService")
 if ContextFetcher is not None:
     __all__.append("ContextFetcher")
+if IndexGeneratorService is not None:
+    __all__.append("IndexGeneratorService")

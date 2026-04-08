@@ -1,19 +1,18 @@
-import os
 import re
 import logging
 import json
 import time
-import uuid
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 from app.core.paths import project_root, output_dir
 from app.services.notion_service import NotionService
 from app.utils.notion_converter import NotionToMarkdown, NotionMapper
 from app.utils.notion_ids import normalize_uuid
-from app.utils.notion_meta import extract_title, get_page_meta
+from app.utils.notion_meta import get_page_meta
+from app.utils.frontmatter import is_change
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +136,9 @@ class SyncNotionJob:
         
         if obj_type == "database":
             logger.info(f"Detected {page_id} is a database. Processing as database...")
-            real_db_id, is_linked = await self.notion_api.resolve_database_id(page_id)
+            real_db_id, _is_linked = await self.notion_api.resolve_database_id(page_id)
             if recursive:
-                await self.process_database(real_db_id, output_dir, parent_filename, depth, is_linked=is_linked)
+                await self.process_database(real_db_id, output_dir, parent_filename, depth)
             return None
         
         filename = f"{page_id}.md"
@@ -165,12 +164,24 @@ class SyncNotionJob:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = output_dir / filename
+        existed_before = file_path.exists()
+        previous_content = ""
+        if existed_before:
+            try:
+                previous_content = file_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Failed to read existing file before compare {file_path}: {e}")
+
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(md_content)
         logger.info(f"Saved: {file_path}")
+
+        body_changed = (not existed_before) or is_change(previous_content, md_content)
+        if existed_before and not body_changed:
+            logger.info(f"Body unchanged for {file_path}; frontmatter-only update ignored.")
         
         if not recursive:
-            return file_path
+            return file_path if body_changed else None
         
         blocks = await self.notion_api.get_blocks(page_id)
         
@@ -184,10 +195,10 @@ class SyncNotionJob:
                 db_id = block["id"]
                 logger.info(f"Found child database: {db_title} ({db_id})")
                 
-                real_db_id, is_linked = await self.notion_api.resolve_database_id(db_id)
-                await self.process_database(real_db_id, output_dir, filename, depth + 1, is_linked=is_linked)
+                real_db_id, _is_linked = await self.notion_api.resolve_database_id(db_id)
+                await self.process_database(real_db_id, output_dir, filename, depth + 1)
         
-        return file_path
+        return file_path if body_changed else None
     
     async def process_database(
         self,
@@ -195,7 +206,6 @@ class SyncNotionJob:
         output_dir: Path,
         parent_filename: Optional[str],
         depth: int,
-        is_linked: bool = False
     ):
         """Iterate through pages in a database and download them."""
         logger.info(f"Processing database: {database_id}...")

@@ -1,11 +1,9 @@
-import os
 import sys
 import argparse
 import asyncio
 import logging
 import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from app.core.paths import output_dir as _output_dir
@@ -20,6 +18,7 @@ OUTPUT_DIR = str(_output_dir())
 async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_analyze: bool = False):
     from app.jobs.sync_notion import SyncNotionJob
     from app.services.git_service import GitService
+    from app.services.index_generator import IndexGeneratorService
     from app.jobs.analyze_notes import AnalyzeNotesJob
 
     logger.info("Starting sync job...")
@@ -47,6 +46,13 @@ async def run_sync_job(force: bool = False, skip_analyze: bool = False, with_ana
 
     job = SyncNotionJob()
     changed_files = await job.sync_incremental(force=force)
+
+    if changed_files:
+        index_service = IndexGeneratorService()
+        try:
+            await index_service.update_files([str(f) for f in changed_files])
+        except Exception as e:
+            logger.error(f"Error updating index.json: {e}")
     
     if git_service:
         try:

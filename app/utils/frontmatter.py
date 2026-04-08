@@ -19,3 +19,12 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
 
 def parse_frontmatter_meta(content: str) -> dict:
     return parse_frontmatter(content)[0]
+
+
+def _normalize_body(content: str) -> str:
+    _, body = parse_frontmatter(content or "")
+    return body.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+
+
+def is_change(old_content: str, new_content: str) -> bool:
+    return _normalize_body(old_content) != _normalize_body(new_content)
