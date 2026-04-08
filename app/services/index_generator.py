@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.core.paths import reports_dir
+from app.core.paths import output_dir
 from app.utils.frontmatter import parse_frontmatter
 from app.utils.timezone_utils import load_profile_timezone
 
@@ -50,7 +50,7 @@ class IndexGeneratorService:
         llm_service: Any | None = None,
         use_llm: bool = True,
     ):
-        self.index_path = index_path or (reports_dir() / "index.json")
+        self.index_path = index_path or (output_dir() / "index.json")
         self.llm = llm_service if llm_service is not None else (self._init_llm() if use_llm else None)
         self.tz = load_profile_timezone()
 
