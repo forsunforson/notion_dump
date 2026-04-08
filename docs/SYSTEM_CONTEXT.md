@@ -22,7 +22,7 @@
 ## 2. 核心模块拓扑 (Module Topology)
 
 ### 入口与调度 (Entry & Orchestration)
--   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+可选指标抽取), `analyze` (仅指标抽取), `review` (生成回顾报告并存盘，支持 daily/weekly/monthly/custom), `portfolio` (同步资产负债表并写入净资产指标), `bot` (启动对话服务), `morning/weekly` (生成对应回顾并推送 Telegram) 等指令。
+-   **`main.py`**: 统一 CLI 入口，支持 `sync` (同步+可选指标抽取), `index` (全量重建 `notion_output/index.json`), `analyze` (仅指标抽取), `review` (生成回顾报告并存盘，支持 daily/weekly/monthly/custom), `portfolio` (同步资产负债表并写入净资产指标), `bot` (启动对话服务), `morning/weekly` (生成对应回顾并推送 Telegram) 等指令。
 -   **`deploy/run_task.sh`**: 生产环境执行包装器。负责：1. `git pull` 自动更新代码；2. 激活 venv；3. 执行 `main.py`；4. 执行 Rclone 备份；5. 进程锁管理。
 -   **`deploy/manage.sh`**: 交互式运维工具，用于管理 Crontab 调度（收敛为 “Manage Cronjobs” 二级菜单）和 Systemd 服务；并提供资产负债表/持仓估值查看，以及 Portfolio Sync / Monthly Review 的定时任务管理入口。
 -   **`deploy/setup_rclone.sh`**: 一键安装与配置 Rclone。基于 `.env` 注入 `RCLONE_CONFIG_*` 变量，非交互验证 `chronofold_backup:` 远端连接，用于 CI/CD 与一键部署。
@@ -53,6 +53,7 @@
 -   **`chat_log_service.py`**: 对话日志服务。封装 `NotionService` 的 `append_to_daily_chat_log` 能力，提供统一的对话日志写入入口，供 `TelegramService` 和 `BotRunner` 调用。
 -   **`llm_service.py`**: LLM 交互网关。封装 OpenAI-Compatible 接口，提供 `ask_json` (结构化输出) 和 `ask_text` 能力，统一处理 System Prompt；支持通过 `AI_NUM_CTX`（仅本地 OpenAI-Compatible 网关）配置更大的上下文窗口。
 -   **`index_generator.py`**: 文档索引生成服务。负责为 `notion_output/*.md` 生成并维护 `notion_output/index.json`；优先使用 LLM 生成 `summary / tags`，失败时退回到基于 Frontmatter 与正文首段的规则兜底；`date` 字段优先读取 Frontmatter 中的 `last_edited_time/date/trade_date/transaction_date/created_time`。
+    同时提供全量重建能力，可由 CLI `python main.py --job index` 重新扫描全部 Markdown 并覆盖写入最新索引；该 CLI 默认走规则兜底生成，避免大规模重建时产生过高的 token 与耗时成本。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送长文本与图片数据流 (Send Message / Send Photo)，并调用 `ChatLogService` 记录 Bot 发送的消息与图片行为。
 -   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划，以及交易复盘（以 `INVESTMENT_SOUL.md + Profile` 作为 system）；对外提供 `build_review_prompt(...)`、`build_trade_analysis_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中。
 -   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；并提供 Markdown 扫描与过滤收集能力（`collect_markdown_by_filters`），将筛选规则收敛为可组合的 filter functions。
@@ -126,6 +127,7 @@ status: "Done"
 ```
 - 仅对“正文真实变化”的文件更新索引；若只有 YAML Frontmatter 变化，不更新该文件索引项。
 - `summary/tags` 优先由 LLM 生成；失败时退回规则兜底，保证 sync 不因索引生成失败而中断。
+- 可通过 `python main.py --job index` 执行全量重建：重新扫描 `notion_output/**/*.md`，并用扫描结果整体覆盖 `notion_output/index.json`；该命令默认使用非 LLM 的规则兜底生成摘要与标签，以确保大批量重建稳定可执行。
 
 ### 量化指标 (`notion_output/metrics.jsonl`)
 由 AI 从日记或记录中提取，用于长期趋势分析。写入层为 append-only（每条记录必含 `date/source/timestamp`，不去重，且不写入 null 字段）；读取层按 `date` 分组聚合，同名字段按 `timestamp` 新的覆盖旧的。

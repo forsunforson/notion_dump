@@ -81,6 +81,21 @@ class IndexGeneratorService:
             encoding="utf-8",
         )
 
+    async def rebuild_all(self, base_dir: str | Path | None = None) -> dict[str, dict[str, Any]]:
+        root = Path(base_dir) if base_dir is not None else output_dir()
+        if not root.exists():
+            self.save_index({})
+            return {}
+
+        index_data: dict[str, dict[str, Any]] = {}
+        for path in sorted(root.glob("**/*.md")):
+            if not path.is_file():
+                continue
+            index_data[path.name] = await self.build_entry(path)
+
+        self.save_index(index_data)
+        return index_data
+
     async def update_files(self, file_paths: list[str | Path]) -> dict[str, dict[str, Any]]:
         index_data = self.load_index()
         for raw_path in file_paths or []:

@@ -134,6 +134,20 @@ async def run_analyze_job(file_paths: list = None):
         logger.error(f"Analyze job failed: {e}")
 
 
+async def run_index_job() -> None:
+    from app.services.index_generator import IndexGeneratorService
+
+    logger.info("Starting index rebuild job...")
+    try:
+        # Full rebuild defaults to rule-based generation to avoid large token/time costs.
+        service = IndexGeneratorService(use_llm=False)
+        index_data = await service.rebuild_all()
+        logger.info(f"Index rebuild completed. Indexed {len(index_data)} markdown files.")
+    except Exception as e:
+        logger.error(f"Index rebuild job failed: {e}")
+        sys.exit(1)
+
+
 async def run_review_job(
     review_type: str,
     start_date: datetime.date | None = None,
@@ -178,6 +192,7 @@ def main():
 Examples:
   python main.py --job sync                    # Run incremental sync
   python main.py --job sync --force            # Force full sync
+  python main.py --job index                   # Rebuild notion_output/index.json from all markdown files
   python main.py --job morning                 # Run morning routine
   python main.py --job weekly                  # Run weekly review
   python main.py --job portfolio               # Sync net worth and write metric
@@ -193,9 +208,9 @@ Examples:
     
     parser.add_argument(
         "--job",
-        choices=["sync", "morning", "weekly", "portfolio", "analyze", "review", "bot"],
+        choices=["sync", "index", "morning", "weekly", "portfolio", "analyze", "review", "bot"],
         default="sync",
-        help="Job type to run: sync (default), morning, weekly, portfolio, analyze, review, or bot"
+        help="Job type to run: sync (default), index, morning, weekly, portfolio, analyze, review, or bot"
     )
     parser.add_argument(
         "--force", "--full",
@@ -278,6 +293,8 @@ Examples:
             skip_analyze=args.skip_analyze,
             with_analyze=args.with_analyze
         ))
+    elif args.job == "index":
+        asyncio.run(run_index_job())
     elif args.job == "morning":
         asyncio.run(run_morning_job())
     elif args.job == "weekly":
