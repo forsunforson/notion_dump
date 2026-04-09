@@ -39,6 +39,7 @@ LOG_FILE="$LOG_DIR/execution.log"
 RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:chronofold-backup}"
 BACKUP_FILES=(".chronofold-state.json" "chronofold-history.jsonl" ".notion-dump-state.json" "notion-dump-history.jsonl" ".env" "config/profile.yaml")
 BACKUP_DIRS=("config/templates")
+BOT_SERVICE_NAME="${CHRONOFOLD_BOT_SERVICE:-chronofold-bot}"
 
 # Parse --job parameter for logging
 JOB_TYPE="sync"
@@ -66,12 +67,82 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+should_restart_bot_for_changed_files() {
+    local changed_files="$1"
+    if [ -z "$changed_files" ]; then
+        return 1
+    fi
+
+    if echo "$changed_files" | grep -Eq '^(main\.py|requirements\.txt|app/|config/templates/)'; then
+        return 0
+    fi
+
+    return 1
+}
+
+restart_bot_service_if_needed() {
+    local changed_files="$1"
+
+    if [ "$JOB_TYPE" = "bot" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] Skip bot auto-restart for bot job itself." >> "$LOG_FILE"
+        return 0
+    fi
+
+    if ! should_restart_bot_for_changed_files "$changed_files"; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] No bot-related code changes detected; skip bot restart." >> "$LOG_FILE"
+        return 0
+    fi
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] Bot-related code changes detected:" >> "$LOG_FILE"
+    echo "$changed_files" | sed 's/^/[Deploy]   - /' >> "$LOG_FILE"
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] systemctl not found; skip bot restart." >> "$LOG_FILE"
+        return 0
+    fi
+
+    if ! systemctl list-unit-files | grep -q "^${BOT_SERVICE_NAME}\.service"; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] ${BOT_SERVICE_NAME}.service not found; skip bot restart." >> "$LOG_FILE"
+        return 0
+    fi
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] Restarting ${BOT_SERVICE_NAME}.service..." >> "$LOG_FILE"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        if systemctl restart "$BOT_SERVICE_NAME" >> "$LOG_FILE" 2>&1; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] ${BOT_SERVICE_NAME}.service restarted successfully." >> "$LOG_FILE"
+            return 0
+        fi
+    elif command -v sudo >/dev/null 2>&1; then
+        if sudo -n systemctl restart "$BOT_SERVICE_NAME" >> "$LOG_FILE" 2>&1; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] ${BOT_SERVICE_NAME}.service restarted successfully via sudo." >> "$LOG_FILE"
+            return 0
+        fi
+    fi
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Warning] Failed to restart ${BOT_SERVICE_NAME}.service. If this runs under cron, configure passwordless sudo for systemctl restart." >> "$LOG_FILE"
+    return 0
+}
+
 # Define the task execution logic
 run_task() {
+    local old_rev=""
+    local new_rev=""
+    local changed_files=""
+
     # 1. 自动更新代码库 (忽略本地任何临时代码修改，强制对齐线上)
+    old_rev="$(git rev-parse HEAD 2>/dev/null || true)"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] 拉取最新项目代码..." >> "$LOG_FILE"
     git fetch origin main >> "$LOG_FILE" 2>&1
     git reset --hard origin/main >> "$LOG_FILE" 2>&1
+    new_rev="$(git rev-parse HEAD 2>/dev/null || true)"
+
+    if [ -n "$old_rev" ] && [ -n "$new_rev" ] && [ "$old_rev" != "$new_rev" ]; then
+        changed_files="$(git diff --name-only "$old_rev" "$new_rev")"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] Code updated: $old_rev -> $new_rev" >> "$LOG_FILE"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Deploy] No code revision change detected." >> "$LOG_FILE"
+    fi
 
     # 2. 检查并激活虚拟环境
     VENV_DIR="$PROJECT_ROOT/venv"
@@ -84,6 +155,8 @@ run_task() {
 
     # (可选) 自动更新依赖
     pip install -r requirements.txt -q >> "$LOG_FILE" 2>&1
+
+    restart_bot_service_if_needed "$changed_files"
 
     echo "========================================================" >> "$LOG_FILE"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task Started (Job: $JOB_TYPE)" >> "$LOG_FILE"

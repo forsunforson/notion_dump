@@ -67,6 +67,38 @@ tail -n 50 logs/execution.log
 tail -f logs/execution.log
 ```
 
+## 4. Passwordless Bot Restart For Cron
+
+If `deploy/run_task.sh` needs to auto-restart `chronofold-bot.service` after pulling new bot-related code, the cron user must be allowed to run `systemctl restart` without an interactive password prompt.
+
+You can configure this in one step with:
+
+```bash
+bash deploy/setup_bot_sudoers.sh
+```
+
+Or specify a user and service name explicitly:
+
+```bash
+bash deploy/setup_bot_sudoers.sh bytedance chronofold-bot
+```
+
+What the script does:
+
+- Detects the absolute path of `systemctl`
+- Generates a sudoers snippet under `/etc/sudoers.d/`
+- Validates syntax with `visudo -c -f`
+- Installs the file with `440` permissions
+
+After setup, verify with:
+
+```bash
+sudo -n systemctl restart chronofold-bot
+sudo -n systemctl status chronofold-bot --no-pager
+```
+
+If the restart command exits with code `0`, `cron` can reuse the same permission when `run_task.sh` detects bot-related code changes.
+
 ## Script Details
 
 - **Path Handling**: The script automatically resolves its location and switches to the project root directory.
