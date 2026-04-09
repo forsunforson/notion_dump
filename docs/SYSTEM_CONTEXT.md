@@ -32,7 +32,7 @@
 -   **`analyze_notes.py`**: 指标 ETL 引擎。读取变更的 Markdown，仅抽取 `daily_metrics` 并 append-only 追加写入 `notion_output/metrics.jsonl`（不去重）。
 -   **`net_worth_sync_job.py`**: 净资产同步作业。读取画像中的 `balance_sheet_structure`（静态资产/现金/股票/期权/负债），拉取行情与汇率，生成当日 `net_worth_cny / total_assets_cny / total_liabilities_cny / liquid_assets_cny` 并 append-only 追加写入 `metrics.jsonl`（不去重）。
 -   **`periodic_review.py`**: 苏格拉底提问引擎 (The Guardian)。支持 `daily/weekly/monthly/custom` 回顾类型：自动推算日期范围（非 custom），在区间内读取日记与 `metrics.jsonl`，通过 `PromptManager.build_review_prompt()` 组装 prompt，生成符合固定结构的 Markdown 报告并输出到 `_reports/{review_type}_{end_date}.md`。
--   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为。
+-   **`bot_runner.py`**: Telegram Bot 守护进程。由 Systemd 托管，基于 Long Polling 监听消息，维护对话上下文，并集成 `app/skills/` 实现 Agentic 行为；同时支持显式运维 Slash Commands：`/help`, `/bot`, `/sync`, `/morning`, `/weekly`, `/monthly`, `/month`, `/portfolio`, `/index`, `/bot_log`, `/execution_log`，用于直接触发与 `manage.sh -> Run Task Now` 对应的即时任务或快速查看日志。
 -   **`routines.py`**: 轻量分发层。执行 `morning/weekly` 时调用统一回顾引擎生成 Markdown，并通过 `TelegramService` 推送消息。
 
 ### 维护工具 (Ops CLI - `app/cli/`)

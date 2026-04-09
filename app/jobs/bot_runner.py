@@ -3,6 +3,7 @@ import logging
 import asyncio
 import datetime
 import time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -25,6 +26,20 @@ from app.skills.periodic_review_skill import (
 from app.utils.text_chunking import split_text_smart
 
 logger = logging.getLogger(__name__)
+
+HELP_TEXT = """可用命令：
+/help - 显示当前支持的命令列表
+/bot - 检查 Telegram Bot 是否在线
+/sync - 立即执行一次同步任务
+/morning - 立即执行 Morning Routine
+/weekly - 立即生成并返回周报
+/monthly - 立即生成并返回月报
+/month - `/monthly` 的别名
+/portfolio - 立即执行 Portfolio Sync
+/index - 全量重建 notion_output/index.json
+/bot_log - 输出 `./logs/bot.log` 最后 100 行
+/execution_log - 输出 `./logs/execution.log` 最后 100 行
+""".strip()
 
 def _prefer_review_tool_output(
     reply_text: str | None,
@@ -67,7 +82,26 @@ class TelegramBotRunner:
         self._history_by_chat: dict[int, list[dict]] = {}
         logger.info("TelegramBotRunner initialized")
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    @staticmethod
+    def _logs_dir() -> Path:
+        return Path(__file__).resolve().parents[2] / "logs"
+
+    @classmethod
+    def _read_log_tail(cls, filename: str, line_count: int = 100) -> str:
+        path = cls._logs_dir() / filename
+        if not path.exists():
+            return f"⚠️ Log file not found: {path}"
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception as e:
+            return f"❌ Failed to read log file {path}: {e}"
+        tail = lines[-line_count:]
+        if not tail:
+            return f"ℹ️ Log file is empty: {path}"
+        content = "\n".join(tail)
+        return f"{path.name} last {min(line_count, len(lines))} lines:\n```text\n{content}\n```"
+
+    async def handle_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE):
         if not update.message or not update.message.text:
             return
 
@@ -84,6 +118,75 @@ class TelegramBotRunner:
         self.chat_log.log_message(role="User", content=user_text)
 
         try:
+            # Fast path: explicit slash commands for ops tasks
+            cmd = (user_text or "").strip().split()[0].lower()
+            if cmd in {"/help", "/sync", "/morning", "/weekly", "/month", "/monthly", "/portfolio", "/index", "/bot", "/bot_log", "/execution_log"}:
+                try:
+                    if cmd == "/help":
+                        await update.message.reply_text(HELP_TEXT)
+                        return
+                    if cmd == "/bot":
+                        await update.message.reply_text("✅ Telegram Bot is online.")
+                        return
+                    if cmd == "/sync":
+                        from main import run_sync_job
+                        await run_sync_job()
+                        await update.message.reply_text("✅ Sync completed.")
+                        return
+                    if cmd == "/morning":
+                        from app.jobs.routines import DailyRoutines
+                        ok = await DailyRoutines().morning_routine()
+                        await update.message.reply_text("✅ Morning routine completed." if ok else "⚠️ Morning routine finished with issues.")
+                        return
+                    if cmd in ("/weekly",):
+                        md = await generate_weekly_review()
+                        parts = split_text_smart(md or "", max_chars=3500)
+                        for i, part in enumerate(parts or ["（空）"]):
+                            await update.message.reply_text(part)
+                            if i < len(parts) - 1:
+                                await asyncio.sleep(1)
+                        return
+                    if cmd in ("/monthly", "/month"):
+                        md = await generate_monthly_review()
+                        parts = split_text_smart(md or "", max_chars=3500)
+                        for i, part in enumerate(parts or ["（空）"]):
+                            await update.message.reply_text(part)
+                            if i < len(parts) - 1:
+                                await asyncio.sleep(1)
+                        return
+                    if cmd == "/portfolio":
+                        from main import run_portfolio_job
+                        await asyncio.get_running_loop().run_in_executor(None, run_portfolio_job)
+                        await update.message.reply_text("✅ Portfolio sync completed.")
+                        return
+                    if cmd == "/index":
+                        # Rule-based full rebuild for stability
+                        from app.services.index_generator import IndexGeneratorService
+                        svc = IndexGeneratorService()
+                        data = await svc.rebuild_all()
+                        await update.message.reply_text(f"✅ Index rebuilt. {len(data)} files indexed.")
+                        return
+                    if cmd == "/bot_log":
+                        log_text = self._read_log_tail("bot.log")
+                        parts = split_text_smart(log_text, max_chars=3500) or ["（空）"]
+                        for i, part in enumerate(parts):
+                            await update.message.reply_text(part)
+                            if i < len(parts) - 1:
+                                await asyncio.sleep(1)
+                        return
+                    if cmd == "/execution_log":
+                        log_text = self._read_log_tail("execution.log")
+                        parts = split_text_smart(log_text, max_chars=3500) or ["（空）"]
+                        for i, part in enumerate(parts):
+                            await update.message.reply_text(part)
+                            if i < len(parts) - 1:
+                                await asyncio.sleep(1)
+                        return
+                except Exception as e:
+                    logger.exception("Slash command execution failed")
+                    await update.message.reply_text(f"❌ Command failed: {e}")
+                    return
+
             # Fetch user profile for context
             profile = self.fetcher.get_profile()
             user_name = profile.get("name", user_name)
