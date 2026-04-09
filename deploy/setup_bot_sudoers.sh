@@ -10,11 +10,6 @@ if ! command -v systemctl >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v visudo >/dev/null 2>&1; then
-    echo "❌ visudo not found. Please install sudo/visudo before running this script."
-    exit 1
-fi
-
 SYSTEMCTL_BIN="$(command -v systemctl)"
 TMP_FILE="$(mktemp)"
 trap 'rm -f "$TMP_FILE"' EXIT
