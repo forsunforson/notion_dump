@@ -140,7 +140,7 @@ async def run_index_job() -> None:
     logger.info("Starting index rebuild job...")
     try:
         # Full rebuild defaults to rule-based generation to avoid large token/time costs.
-        service = IndexGeneratorService(use_llm=False)
+        service = IndexGeneratorService()
         index_data = await service.rebuild_all()
         logger.info(f"Index rebuild completed. Indexed {len(index_data)} markdown files.")
     except Exception as e:

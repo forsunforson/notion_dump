@@ -258,9 +258,10 @@ show_run_menu() {
     echo "4. 🗓️ Monthly Review (Monthly review report)"
     echo "5. 🤖 Telegram Bot (Run in foreground)"
     echo "6. 💹 Portfolio Sync (Sync prices)"
-    echo "7. ◀️  Back to Main Menu"
+    echo "7. 🗂️ Rebuild Index (notion_output/index.json)"
+    echo "8. ◀️  Back to Main Menu"
     echo "=========================================="
-    echo -n "Select a task to run [1-7]: "
+    echo -n "Select a task to run [1-8]: "
 }
 
 show_schedule_menu() {
@@ -302,7 +303,8 @@ run_now_submenu() {
             4) run_task_now "review" "Monthly Review" --type monthly ;;
             5) run_task_now "bot" "Telegram Bot" ;;
             6) run_task_now "portfolio" "Portfolio Sync" ;;
-            7) return ;;
+            7) run_task_now "index" "Index Rebuild" ;;
+            8) return ;;
             *) echo "❌ Invalid option. Please try again." ;;
         esac
     done
