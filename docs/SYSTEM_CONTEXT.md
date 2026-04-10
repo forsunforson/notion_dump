@@ -55,7 +55,7 @@
 -   **`index_generator.py`**: 文档索引生成服务。负责为 `notion_output/*.md` 生成并维护 `notion_output/index.json`；优先使用 LLM 生成 `summary / tags`，失败时退回到基于 Frontmatter 与正文首段的规则兜底；`date` 字段优先读取 Frontmatter 中的 `last_edited_time/date/trade_date/transaction_date/created_time`。
     同时提供全量重建能力，可由 CLI `python main.py --job index` 重新扫描全部 Markdown 并覆盖写入最新索引；该 CLI 默认走规则兜底生成，避免大规模重建时产生过高的 token 与耗时成本。
 -   **`telegram_service.py`**: 消息推送服务。负责单向发送长文本与图片数据流 (Send Message / Send Photo)，并调用 `ChatLogService` 记录 Bot 发送的消息与图片行为。
--   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划，以及交易复盘（以 `INVESTMENT_SOUL.md + Profile` 作为 system）；对外提供 `build_review_prompt(...)`、`build_trade_analysis_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中。
+-   **`prompt_manager.py`**: 提示词工程管理与“System Prompt 单一入口”。集中管理各条链路的 system/user prompt 组装与 persona 范围：周期性回顾（含 `SOUL.md` 拼接）、日记指标抽取（JSON）、Telegram Bot（Tool Use 约束，含 `SOUL.md` 拼接）、训练计划，以及交易复盘（以 `INVESTMENT_SOUL.md + Profile` 作为 system）；其中日记指标抽取 prompt 明确要求从 `Workout` 栏的半结构化线索（动作数量、重量、组数、次数、PR、休息日等）推断 `workout_volume_score`，减少仅因未显式打分而返回 null 的情况。对外提供 `build_review_prompt(...)`、`build_trade_analysis_prompt(...)`、`build_metrics_extraction_prompts(...)`、`build_telegram_bot_messages(...)`、`build_workout_plan_prompts(...)` 等统一接口，避免 prompt 文案散落在 Job 中。
 -   **`context_fetcher.py`**: 上下文组装器。负责读取本地文件 (`metrics.jsonl`, `_reports/`, `profile.yaml`) 并进行时区本地化处理，为 AI 提供短期记忆；并提供 Markdown 扫描与过滤收集能力（`collect_markdown_by_filters`），将筛选规则收敛为可组合的 filter functions。
 
 ### 工具链 (Utilities - `app/utils/`)

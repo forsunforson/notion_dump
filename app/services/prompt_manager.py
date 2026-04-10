@@ -16,6 +16,20 @@ METRICS_EXTRACTION_USER_PROMPT_TEMPLATE = """
 2) energy_level 为 1-10 的整数；workout_volume_score 为 1-10 的整数；weight 为 kg 的浮点数。
 3) sleep_quality 仅限 "good" / "normal" / "poor" 三选一；mood_tag 用一个英文单词。
 4) date 不需要填写，系统会注入。
+5) 对 workout_volume_score 要积极利用日记里半结构化的训练线索，不要因为没有显式“打分”就直接返回 null。
+
+workout_volume_score 判定细则：
+- 如果 Workout 栏明确写了“休息 / rest / off”，返回 1-2。
+- 如果只有 very light 的恢复活动（如拉伸、散步、轻松有氧），返回 2-4。
+- 如果有正式训练，但动作少、容量低、强度一般，返回 4-6。
+- 如果有多个正式动作，且出现重量、组数、次数、负重、PR、突破、爆发力、大重量等线索，返回 7-9。
+- 如果训练明显很重，既有多动作多组数，又有高强度信号（例如 PR、大重量、复杂复合动作、高容量），返回 9-10。
+
+workout_volume_score 额外约束：
+- “Done: workout” 只能作为做过训练的弱证据，不能单独打出高分。
+- 仅有训练计划或模板占位符、但看不出实际完成情况时，不要给高分；有训练但完成度不明时可给 4-6 的保守分。
+- 看到具体重量、组数、次数、动作数量较多时，应优先认为当天存在可评分训练，不要轻易返回 null。
+- 如果全文没有任何可证明训练发生的线索，再返回 null。
 
 JSON 结构：
 {{
