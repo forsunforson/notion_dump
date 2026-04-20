@@ -1,4 +1,7 @@
 import datetime
+import asyncio
+import tempfile
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -65,3 +68,19 @@ def test_resolve_month_date_range_invalid_month(monkeypatch):
     today = FixedDateTime.now(tz).date()
     with pytest.raises(ValueError):
         s._resolve_month_date_range(period="current", today_local=today, month="2026-13")
+
+
+def test_generate_weekly_review_adds_range_prefix_to_cached_report(monkeypatch):
+    tz = ZoneInfo("Asia/Shanghai")
+    monkeypatch.setattr(s, "load_profile_timezone", lambda: tz)
+    monkeypatch.setattr(s.datetime, "datetime", FixedDateTime)
+
+    with tempfile.TemporaryDirectory() as td:
+        monkeypatch.setattr(s, "reports_dir", lambda: Path(td))
+        report_path = Path(td) / "weekly_2026-03-29.md"
+        report_path.write_text("## 1. 冰冷的镜像\n内容", encoding="utf-8")
+
+        result = asyncio.run(s.generate_weekly_review(period="previous"))
+
+        assert result.startswith("周报范围：2026-03-23 ~ 2026-03-29")
+        assert report_path.read_text(encoding="utf-8").startswith("周报范围：2026-03-23 ~ 2026-03-29")

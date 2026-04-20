@@ -32,7 +32,7 @@ HELP_TEXT = """可用命令：
 /bot - 检查 Telegram Bot 是否在线
 /sync - 立即执行一次同步任务
 /morning - 立即执行 Morning Routine
-/weekly - 立即生成并返回周报
+/weekly - 立即生成并返回上一完整周周报（周一到周日）
 /monthly - 立即生成并返回月报
 /month - `/monthly` 的别名
 /portfolio - 立即执行 Portfolio Sync
@@ -139,7 +139,7 @@ class TelegramBotRunner:
                         await update.message.reply_text("✅ Morning routine completed." if ok else "⚠️ Morning routine finished with issues.")
                         return
                     if cmd in ("/weekly",):
-                        md = await generate_weekly_review()
+                        md = await generate_weekly_review(period="previous")
                         parts = split_text_smart(md or "", max_chars=3500)
                         for i, part in enumerate(parts or ["（空）"]):
                             await update.message.reply_text(part)

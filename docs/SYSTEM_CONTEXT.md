@@ -17,7 +17,7 @@
         - **客观指标**: 通过 `metrics_skill.upsert_daily_metric` 将量化数据写入 `notion_output/metrics.jsonl`。
         - **动态画像演进 (Profile Evolution)**: 通过 `update_profile_skill.update_profile_attribute` 修改 `config/profile.yaml` 的可演进字段，并将每次变更追加写入 `notion_output/profile_changelog.jsonl` 作为审计与认知演化日志。
         - **上下文拉取**: 通过 `context_collect_skill.collect_markdown_context` 按时间范围与过滤器收集本地 Markdown（如日记/交易/Chatlog），用于后续分析与复盘。
-        - **周/月回顾生成**: 通过 `periodic_review_skill.generate_weekly_review / generate_monthly_review` 生成本周/本月（默认截至今天）或指定周期的回顾报告，并落盘到 `_reports/`。
+        - **周/月回顾生成**: 通过 `periodic_review_skill.generate_weekly_review / generate_monthly_review` 生成指定周期的回顾报告并落盘到 `_reports/`；其中 Telegram `/weekly` 默认生成**上一完整周**（周一到周日，如 2026-04-20 触发则范围为 2026-04-13 ~ 2026-04-19），月报默认仍为本月截至今天。
 
 ## 2. 核心模块拓扑 (Module Topology)
 

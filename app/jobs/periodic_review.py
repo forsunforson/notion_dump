@@ -46,21 +46,15 @@ class PeriodicReviewJob:
 
         include_trade_analysis = self.review_type in {"weekly", "monthly"}
         trade_entries: list[dict] = []
-        trade_start_date: datetime.date | None = None
-        trade_end_date: datetime.date | None = None
-        trade_start_utc: datetime.datetime | None = None
-        trade_end_utc: datetime.datetime | None = None
-        if include_trade_analysis:
-            trade_end_date = end_date
-            trade_start_date = end_date - datetime.timedelta(days=6)
-            trade_start_utc, trade_end_utc = self._local_date_range_to_utc(trade_start_date, trade_end_date)
+        trade_start_date: datetime.date | None = start_date if include_trade_analysis else None
+        trade_end_date: datetime.date | None = end_date if include_trade_analysis else None
 
         cf = ContextFetcher()
         filters: dict[str, object] = {
             "diary": cf.make_daily_entry_filter(start_utc=start_utc, end_utc=end_utc),
         }
-        if include_trade_analysis and trade_start_utc and trade_end_utc:
-            filters["trade"] = cf.make_trade_log_filter(start_utc=trade_start_utc, end_utc=trade_end_utc)
+        if include_trade_analysis:
+            filters["trade"] = cf.make_trade_log_filter(start_utc=start_utc, end_utc=end_utc)
 
         md_count, buckets = cf.collect_markdown_by_filters(filters=filters)
         diary_entries = []
@@ -176,8 +170,34 @@ class PeriodicReviewJob:
                     + "\n"
                 )
 
+        report_md = self._prepend_report_range_line(
+            report_md,
+            start_date=start_date,
+            end_date=end_date,
+        )
         out_path.write_text(report_md + "\n", encoding="utf-8")
         return report_md
+
+    def _prepend_report_range_line(
+        self,
+        report_md: str,
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+    ) -> str:
+        if self.review_type != "weekly":
+            return (report_md or "").strip()
+
+        line = f"周报范围：{start_date.isoformat()} ~ {end_date.isoformat()}"
+        stripped = (report_md or "").strip()
+        if not stripped:
+            return line
+
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("周报范围："):
+            body = "\n".join(lines[1:]).lstrip("\n")
+            return f"{line}\n\n{body}".strip()
+        return f"{line}\n\n{stripped}".strip()
 
     def _load_latest_net_worth_cny(self) -> float | None:
         metrics_path = OUTPUT_DIR / METRICS_FILENAME

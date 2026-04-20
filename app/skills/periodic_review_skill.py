@@ -11,7 +11,6 @@ Period = Literal["current", "previous"]
 
 
 def _last_day_of_month(year: int, month: int) -> datetime.date:
-    first = datetime.date(year, month, 1)
     if month == 12:
         nxt = datetime.date(year + 1, 1, 1)
     else:
@@ -73,6 +72,23 @@ def _parse_iso_date(s: str) -> datetime.date:
     return datetime.date.fromisoformat((s or "").strip()[:10])
 
 
+def _weekly_range_line(start_date: datetime.date, end_date: datetime.date) -> str:
+    return f"周报范围：{start_date.isoformat()} ~ {end_date.isoformat()}"
+
+
+def _ensure_weekly_range_prefix(content: str, *, start_date: datetime.date, end_date: datetime.date) -> str:
+    line = _weekly_range_line(start_date, end_date)
+    stripped = (content or "").strip()
+    if not stripped:
+        return line
+
+    lines = stripped.splitlines()
+    if lines and lines[0].startswith("周报范围："):
+        body = "\n".join(lines[1:]).lstrip("\n")
+        return f"{line}\n\n{body}".strip()
+    return f"{line}\n\n{stripped}".strip()
+
+
 async def generate_weekly_review(
     *,
     period: Period = "current",
@@ -90,10 +106,18 @@ async def generate_weekly_review(
 
     p = _report_path("weekly", end_d)
     if p.exists() and not force_regenerate:
-        return p.read_text(encoding="utf-8").strip()
+        content = p.read_text(encoding="utf-8")
+        normalized = _ensure_weekly_range_prefix(content, start_date=start_d, end_date=end_d)
+        if normalized != (content or "").strip():
+            p.write_text(normalized + "\n", encoding="utf-8")
+        return normalized
 
     job = PeriodicReviewJob(review_type="weekly")
-    return (await job.run(start_date=start_d, end_date=end_d)).strip()
+    return _ensure_weekly_range_prefix(
+        await job.run(start_date=start_d, end_date=end_d),
+        start_date=start_d,
+        end_date=end_d,
+    )
 
 
 async def generate_monthly_review(
@@ -124,14 +148,14 @@ GENERATE_WEEKLY_REVIEW_SCHEMA = {
     "type": "function",
     "function": {
         "name": "generate_weekly_review",
-        "description": "Generate a weekly review report for a given local time range and save it under _reports/.",
+        "description": "Generate a weekly review report for a given local time range and save it under _reports/. If dates are omitted, callers can choose current week (Monday to today) or previous full week (Monday to Sunday).",
         "parameters": {
             "type": "object",
             "properties": {
                 "period": {
                     "type": "string",
                     "enum": ["current", "previous"],
-                    "description": "Which week to generate if start_date/end_date are not provided. Default: current.",
+                    "description": "Which week to generate if start_date/end_date are not provided: current means Monday to today, previous means the previous full Monday-Sunday week. Default: current.",
                 },
                 "start_date": {
                     "type": "string",

@@ -90,6 +90,7 @@ class TestTelegramBotRunnerCommands(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(update.message.replies)
         self.assertIn("/sync", update.message.replies[0])
         self.assertIn("/index", update.message.replies[0])
+        self.assertIn("上一完整周", update.message.replies[0])
 
     async def test_log_commands_read_last_100_lines(self):
         from pathlib import Path
@@ -109,3 +110,13 @@ class TestTelegramBotRunnerCommands(unittest.IsolatedAsyncioTestCase):
             await runner.handle_message(update2, None)
             self.assertTrue(update2.message.replies)
             self.assertIn("execution.log", update2.message.replies[0])
+
+    async def test_weekly_command_uses_previous_period(self):
+        runner = self._make_runner()
+        update = _DummyUpdate("/weekly")
+
+        with patch("app.jobs.bot_runner.generate_weekly_review", new=AsyncMock(return_value="weekly report")) as mocked:
+            await runner.handle_message(update, None)
+
+        mocked.assert_awaited_once_with(period="previous")
+        self.assertEqual(update.message.replies, ["weekly report"])
