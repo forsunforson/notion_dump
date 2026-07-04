@@ -324,7 +324,7 @@ schedule_sync_task() {
         return
     fi
     
-    cron_job="0 */$interval * * * $RUN_TASK_SCRIPT --job sync >> $LOGS_DIR/cron_sync.log 2>&1"
+    cron_job="0 */$interval * * * $RUN_TASK_SCRIPT --job sync --skip-analyze >> $LOGS_DIR/cron_sync.log 2>&1"
     
     (crontab -l 2>/dev/null | grep -v "$RUN_TASK_SCRIPT --job sync"; echo "$cron_job") | crontab -
     
